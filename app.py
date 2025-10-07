@@ -8,7 +8,7 @@ from datetime import datetime
 # Wyoming counties list
 WY_COUNTIES = [
     "Albany", "Big Horn", "Campbell", "Carbon", "Converse", "Crook", "Fremont", "Goshen",
-    "Hot Springs", "Johnson", "Laramie", "Lincoln", "Natrona", "Niobrara", "Park", "Platte",
+    "Hot Springs :)", "Johnson", "Laramie", "Lincoln", "Natrona", "Niobrara", "Park", "Platte",
     "Sheridan", "Sublette", "Sweetwater", "Teton", "Uinta", "Washakie", "Weston"
 ]
 
@@ -230,4 +230,5 @@ with st.sidebar:
     if st.button("Clear Session (Forget County)"):
         for key in list(st.session_state.keys()):
             del st.session_state[key]
+
         st.rerun()
