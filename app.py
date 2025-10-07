@@ -212,7 +212,7 @@ if st.button("Compare Lists", type="primary") and applicant_upload is not None:
             
             txt_content = generate_txt_output(common_all)
             st.download_button(
-                label="Download Matches as TXT",
+                label="Download Matches as .TXT",
                 data=txt_content,
                 file_name=f"{county}_LTHO_Matches.txt",
                 mime="text/plain"
@@ -222,7 +222,7 @@ if st.button("Compare Lists", type="primary") and applicant_upload is not None:
 with st.sidebar:
     st.header("Instructions")
     st.markdown("""
-    - Select your county.
+    - Select your county (hs).
     - Upload/save your master list once (persists on server).
     - Upload applicant list for each session (auto-deletes after).
     - Results downloadable per run.
@@ -232,3 +232,4 @@ with st.sidebar:
             del st.session_state[key]
 
         st.rerun()
+
