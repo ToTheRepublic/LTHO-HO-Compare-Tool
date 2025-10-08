@@ -176,12 +176,17 @@ if 'county' not in st.session_state:
 if 'master_uploaded' not in st.session_state:
     st.session_state.master_uploaded = False
 
-# County selection
+# Get logged-in county from auth
+logged_in_county = os.environ.get('REMOTE_USER', '').strip()
+default_county = logged_in_county if logged_in_county in WY_COUNTIES else None
+
 st.subheader("Select Your County")
-county = st.selectbox("Choose a county:", WY_COUNTIES, key="county_select")
+county = st.selectbox("Choose a county:", WY_COUNTIES, index=WY_COUNTIES.index(default_county) if default_county else 0, key="county_select")
 if county != st.session_state.county:
     st.session_state.county = county
-    st.session_state.master_uploaded = False  # Reset on county change
+    st.session_state.docs_indexed = {}  # Or equivalent for app.py
+    st.session_state.search_results = None
+    st.session_state.selected_res = None
     st.rerun()
 
 if not county:
