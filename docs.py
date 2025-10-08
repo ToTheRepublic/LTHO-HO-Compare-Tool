@@ -315,6 +315,15 @@ else:
     st.warning("No county selected. Please log in from the home page.")
     st.stop()
 
+if 'county' in query_params:
+    county = query_params['county'][0]
+    st.write(f"**Debug: Received raw county param:** '{county}'")  # Add this line
+    st.write(f"**Debug: Length:** {len(county)}, **Trimmed:** '{county.strip()}'")  # Check for spaces
+    if county not in WY_COUNTIES:
+        st.error("Invalid county selected. Please log in from the home page.")
+        st.stop()
+    # ... rest
+
 # Use county from session state
 county = st.session_state.county
 st.title(f"WY County Document Search - {county} County")
