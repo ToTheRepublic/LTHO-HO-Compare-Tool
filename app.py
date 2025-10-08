@@ -148,6 +148,9 @@ def get_master_path(county):
 st.set_page_config(page_title="WY County Excel Comparison Tool", layout="wide")
 st.title("Wyoming County Excel Comparison Tool")
 
+if st.button("← Back to Home", key="back_home"):
+    st.switch_page("https://assessortools.com")
+
 # Initialize session state
 if 'county' not in st.session_state:
     st.session_state.county = None
