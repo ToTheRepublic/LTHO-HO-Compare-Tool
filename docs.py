@@ -426,7 +426,7 @@ with tab1:
                     doc.close()
         else:
             # Extract and download button
-            if st.button("Extract Selected PDF", key="extract_button"):
+            if st.button("Extract Selected PDF", key="extract_button2"):
                 pdf_bytes = extract_pdf(pdf_path, selected_res)
                 if isinstance(pdf_bytes, tuple):  # Error case
                     st.error(pdf_bytes[1])
