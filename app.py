@@ -148,10 +148,10 @@ def get_master_path(county):
 st.set_page_config(page_title="WY County Excel Comparison Tool", layout="wide")
 st.title("Wyoming County Excel Comparison Tool")
 
-# Back to Home button (styled to match dark theme)
+# Back to Home button (styled, same tab)
 st.markdown(
     """
-    <a href="https://assessortools.com" style="
+    <a href="https://assessortools.com" target="_self" rel="noopener noreferrer" style="
         text-decoration: none;
         display: inline-block;
         padding: 8px 16px;
