@@ -271,6 +271,10 @@ def extract_pdf(pdf_path, selected_res):
 st.set_page_config(page_title="WY County Document Search", layout="wide")
 
 # Initialize session state
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+if 'county' not in st.session_state:
+    st.session_state.county = None
 if 'docs_indexed' not in st.session_state:
     st.session_state.docs_indexed = {}
 if 'search_results' not in st.session_state:
@@ -278,28 +282,29 @@ if 'search_results' not in st.session_state:
 if 'selected_res' not in st.session_state:
     st.session_state.selected_res = None
 
-# Get logged-in county from auth
-logged_in_county = os.environ.get('REMOTE_USER', '').strip()
+# Login check
+if not st.session_state.logged_in:
+    st.title("Login Required")
+    with st.form("login_form"):
+        county = st.selectbox("Select County:", WY_COUNTIES)
+        password = st.text_input("Password:", type="password")
+        submitted = st.form_submit_button("Login")
+        if submitted:
+            # For now, hardcoded password; replace with proper auth later
+            if password == "wyoming2025":  # Change this to a secure password
+                st.session_state.county = county
+                st.session_state.logged_in = True
+                st.success(f"Logged in as {county} County")
+                st.rerun()
+            else:
+                st.error("Invalid password. Please try again.")
+    st.stop()
 
-if not logged_in_county or logged_in_county not in WY_COUNTIES:
-    st.warning("No valid login detected. Please select your county.")
-    county = st.selectbox("Choose a county:", WY_COUNTIES, key="county_select")
-    is_manual = True
-else:
-    county = logged_in_county
-    is_manual = False
-
-if county != st.session_state.get('county', None):
-    st.session_state.county = county
-    st.session_state.docs_indexed = {}
-    st.session_state.search_results = None
-    st.session_state.selected_res = None
-    st.rerun()
-
+# Get county
+county = st.session_state.county
 county_dir = get_county_path(county)
 
-status_text = "Selected" if is_manual else "Logged in as"
-st.sidebar.write(f"{status_text}: {county} County")
+st.sidebar.write(f"Logged in as: {county} County")
 
 # Tabs
 tab1, tab2 = st.tabs(["Search", "Settings"])
@@ -531,15 +536,8 @@ with st.sidebar:
     - Back to Search tab: Enter query and hit Enter or click Search to query and select from matches to download extracted PDFs.
     - Files are stored server-side per county for reuse.
     """)
-    if st.button("Clear Session"):
+    if st.button("Logout"):
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
-
-    if st.button("Logout (Clear Session)"):
-        # Clear session state
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
-        st.success("Session cleared. Return to landing and clear browser cache for full logout.")
-        st.rerun()
-    st.markdown("**Note:** Basic auth persists in browser—clear site data in settings for true logout.")
+    st.markdown("**Note:** Click Logout to start a new session.")
