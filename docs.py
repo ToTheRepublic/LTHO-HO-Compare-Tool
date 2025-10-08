@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import os
 import re
@@ -313,15 +314,28 @@ with tab1:
         if default_county in WY_COUNTIES:
             st.session_state.county = default_county  # Pre-set session
 
-    # Get logged-in county from auth
+    # Get logged-in county from auth (debug: shows if REMOTE_USER passes)
+    import os
     logged_in_county = os.environ.get('REMOTE_USER', '').strip()
-    default_county = logged_in_county if logged_in_county in WY_COUNTIES else None
+    st.sidebar.write(f"Debug - Logged in as: '{logged_in_county}'")  # Remove in prod
+
+    # Get county from URL param if present (fallback for persistence)
+    query_params = st.query_params
+    url_county = query_params.get("county", logged_in_county if logged_in_county in WY_COUNTIES else None)
+    if url_county:
+        url_county = urllib.parse.unquote(url_county)
+
+    default_county = url_county if url_county in WY_COUNTIES else st.session_state.get("county", None)
 
     st.subheader("Select Your County")
-    county = st.selectbox("Choose a county:", WY_COUNTIES, index=WY_COUNTIES.index(default_county) if default_county else 0, key="county_select")
+    county = st.selectbox("Choose a county:", WY_COUNTIES, 
+                        index=WY_COUNTIES.index(default_county) if default_county else 0, 
+                        key="county_select")
     if county != st.session_state.county:
         st.session_state.county = county
-        st.session_state.docs_indexed = {}  # Or equivalent for app.py
+        # Update URL param for persistence
+        st.query_params["county"] = urllib.parse.quote(county)
+        st.session_state.docs_indexed = {}
         st.session_state.search_results = None
         st.session_state.selected_res = None
         st.rerun()
@@ -408,30 +422,40 @@ if all(doc_type in st.session_state.docs_indexed for doc_type in DOC_TYPES):
                     mime="application/pdf"
                 )
 
-                # PDF options
-                pdf_base64 = base64.b64encode(pdf_data).decode()
-                st.markdown("""
-                    ### PDF Actions:
-                    <button onclick="window.open('data:application/pdf;base64,{pdf_base64}', '_blank')">Open in New Tab (Adobe-Compatible)</button>
-                    <button onclick="window.print()">Print Current Page (Download First for Full PDF)</button>
-                """.format(pdf_base64=pdf_base64), unsafe_allow_html=True)
+        # PDF options (using components for JS support)
+        pdf_base64 = base64.b64encode(pdf_data).decode()
+        components.html(f"""
+            <div>
+                <h3>PDF Actions:</h3>
+                <button onclick="window.open('data:application/pdf;base64,{pdf_base64}', '_blank')">Open in New Tab (Adobe-Compatible)</button>
+                <button onclick="window.print()">Print Current Page (Download First for Full PDF)</button>
+            </div>
+            <script>
+                // Ensure buttons are clickable
+                document.querySelectorAll('button').forEach(btn => {{
+                    btn.style.padding = '10px 20px';
+                    btn.style.margin = '5px';
+                    btn.style.borderRadius = '4px';
+                    btn.style.border = '1px solid #ccc';
+                    btn.style.backgroundColor = '#f0f0f0';
+                    btn.style.cursor = 'pointer';
+                }});
+            </script>
+        """, height=100)
 
-                # Embed preview for quick view (opens in browser PDF viewer, works with Adobe if set as default)
-                st.markdown(f'<iframe src="data:application/pdf;base64,{pdf_base64}" width="100%" height="600px" type="application/pdf"></iframe>', unsafe_allow_html=True)
-
-                # First page preview
-                st.markdown("### First Page Preview:")
-                try:
-                    doc = fitz.open(stream=pdf_data, filetype="pdf")
-                    if len(doc) > 0:
-                        page = doc.load_page(0)
-                        mat = fitz.Matrix(2, 2)
-                        pix = page.get_pixmap(matrix=mat)
-                        img_bytes = pix.tobytes("png")
-                        st.image(img_bytes, caption=f"Preview of {selected_res['acc']} - Page 1", width='stretch')
-                    doc.close()
-                except Exception as e:
-                    st.warning(f"Could not generate preview: {e}")
+        # First page preview (keep as-is, no iframe)
+        st.markdown("### First Page Preview:")
+        try:
+            doc = fitz.open(stream=pdf_data, filetype="pdf")
+            if len(doc) > 0:
+                page = doc.load_page(0)
+                mat = fitz.Matrix(2, 2)
+                pix = page.get_pixmap(matrix=mat)
+                img_bytes = pix.tobytes("png")
+                st.image(img_bytes, caption=f"Preview of {selected_res['acc']} - Page 1", width='stretch')
+            doc.close()
+        except Exception as e:
+            st.warning(f"Could not generate preview: {e}")
     else:
         if st.session_state.selected_res:
             # Handle previous selection if no new search
@@ -449,29 +473,39 @@ if all(doc_type in st.session_state.docs_indexed for doc_type in DOC_TYPES):
                         mime="application/pdf"
                     )
 
-                    # PDF options
-                    pdf_base64 = base64.b64encode(pdf_data).decode()
-                    st.markdown("""
-                        ### PDF Actions:
-                        <button onclick="window.open('data:application/pdf;base64,{pdf_base64}', '_blank')">Open in New Tab (Adobe-Compatible)</button>
-                        <button onclick="window.print()">Print Current Page (Download First for Full PDF)</button>
-                    """.format(pdf_base64=pdf_base64), unsafe_allow_html=True)
+                    # PDF options (using components for JS support)
+        pdf_base64 = base64.b64encode(pdf_data).decode()
+        components.html(f"""
+            <div>
+                <h3>PDF Actions:</h3>
+                <button onclick="window.open('data:application/pdf;base64,{pdf_base64}', '_blank')">Open in New Tab (Adobe-Compatible)</button>
+                <button onclick="window.print()">Print Current Page (Download First for Full PDF)</button>
+            </div>
+            <script>
+                // Ensure buttons are clickable
+                document.querySelectorAll('button').forEach(btn => {{
+                    btn.style.padding = '10px 20px';
+                    btn.style.margin = '5px';
+                    btn.style.borderRadius = '4px';
+                    btn.style.border = '1px solid #ccc';
+                    btn.style.backgroundColor = '#f0f0f0';
+                    btn.style.cursor = 'pointer';
+                }});
+            </script>
+        """, height=100)
 
-                    # Embed preview for quick view (opens in browser PDF viewer, works with Adobe if set as default)
-                    st.markdown(f'<iframe src="data:application/pdf;base64,{pdf_base64}" width="100%" height="600px" type="application/pdf"></iframe>', unsafe_allow_html=True)
-                    
-                    st.markdown("### First Page Preview:")
-                    try:
-                        doc = fitz.open(stream=pdf_data, filetype="pdf")
-                        if len(doc) > 0:
-                            page = doc.load_page(0)
-                            mat = fitz.Matrix(2, 2)
-                            pix = page.get_pixmap(matrix=mat)
-                            img_bytes = pix.tobytes("png")
-                            st.image(img_bytes, caption=f"Preview of {selected_res['acc']} - Page 1", width='stretch')
-                        doc.close()
-                    except Exception as e:
-                        st.warning(f"Could not generate preview: {e}")
+        st.markdown("### First Page Preview:")
+        try:
+            doc = fitz.open(stream=pdf_data, filetype="pdf")
+            if len(doc) > 0:
+                page = doc.load_page(0)
+                mat = fitz.Matrix(2, 2)
+                pix = page.get_pixmap(matrix=mat)
+                img_bytes = pix.tobytes("png")
+                st.image(img_bytes, caption=f"Preview of {selected_res['acc']} - Page 1", width='stretch')
+            doc.close()
+        except Exception as e:
+            st.warning(f"Could not generate preview: {e}")
 
 else:
     st.warning("Please index all document types in Settings before searching.")
@@ -548,3 +582,11 @@ with st.sidebar:
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
+
+    if st.button("Logout (Clear Session)"):
+        # Clear session state
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.success("Session cleared. Return to landing and clear browser cache for full logout.")
+        st.rerun()
+    st.markdown("**Note:** Basic auth persists in browser—clear site data in settings for true logout.")
