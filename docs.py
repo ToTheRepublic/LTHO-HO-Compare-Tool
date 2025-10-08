@@ -306,23 +306,18 @@ if 'selected_res' not in st.session_state:
 # Check for county from query params
 query_params = st.query_params
 if 'county' in query_params:
-    county = query_params['county'][0]
+    raw_county = query_params['county'][0]
+    # Normalize: strip spaces and title-case for consistency
+    county = raw_county.strip().title()
+    # Temporary debug (remove after testing)
+    st.write(f"**Debug: Raw param:** '{raw_county}' → **Normalized:** '{county}'")
     if county not in WY_COUNTIES:
-        st.error("Invalid county selected. Please log in from the home page.")
+        st.error(f"Invalid county '{county}' (not in list). Please log in from the home page.")
         st.stop()
     st.session_state.county = county
 else:
     st.warning("No county selected. Please log in from the home page.")
     st.stop()
-
-if 'county' in query_params:
-    county = query_params['county'][0]
-    st.write(f"**Debug: Received raw county param:** '{county}'")  # Add this line
-    st.write(f"**Debug: Length:** {len(county)}, **Trimmed:** '{county.strip()}'")  # Check for spaces
-    if county not in WY_COUNTIES:
-        st.error("Invalid county selected. Please log in from the home page.")
-        st.stop()
-    # ... rest
 
 # Use county from session state
 county = st.session_state.county
@@ -417,7 +412,7 @@ with tab1:
                     # Inline PDF Viewer
                     st.markdown("### Full PDF Preview:")
                     try:
-                        pdf_viewer(pdf_data, height=2000)
+                        pdf_viewer(pdf_data, height=800)
                     except Exception as e:
                         st.warning(f"Could not render PDF viewer: {e}. Falling back to first-page image preview.")
                         # Fallback image code
