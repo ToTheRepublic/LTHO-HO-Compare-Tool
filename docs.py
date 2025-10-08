@@ -9,6 +9,7 @@ import time
 from datetime import datetime
 import base64
 import urllib.parse
+from streamlit_pdf_viewer import pdf_viewer
 import streamlit.components.v1 as components
 
 # Wyoming counties list
@@ -394,6 +395,36 @@ with tab1:
                 st.write("**Address:**")
                 st.write(get_address_from_index(selected_res))
 
+        # Extract and download button
+        if st.button("Extract Selected PDF", key="extract_button"):
+            pdf_bytes = extract_pdf(pdf_path, selected_res)
+            if isinstance(pdf_bytes, tuple):  # Error case
+                st.error(pdf_bytes[1])
+            else:
+                pdf_data = pdf_bytes.getvalue()
+                st.download_button(
+                    label="Download Extracted PDF",
+                    data=pdf_data,
+                    file_name=f"{county}_{type_var}_{selected_res['acc']}.pdf",
+                    mime="application/pdf"
+                )
+
+                # Inline PDF Viewer (new: full PDF preview)
+                st.markdown("### Full PDF Preview:")
+                try:
+                    pdf_viewer(pdf_data, height=800)  # Adjust height as needed; supports width/zoom options too
+                except Exception as e:
+                    st.warning(f"Could not render PDF viewer: {e}. Falling back to first-page image preview.")
+                    # Optional: Keep old image preview as fallback
+                    doc = fitz.open(stream=pdf_data, filetype="pdf")
+                    if len(doc) > 0:
+                        page = doc.load_page(0)
+                        mat = fitz.Matrix(2, 2)
+                        pix = page.get_pixmap(matrix=mat)
+                        img_bytes = pix.tobytes("png")
+                        st.image(img_bytes, caption=f"Preview of {selected_res['acc']} - Page 1", width='stretch')
+                    doc.close()
+        else:
             # Extract and download button
             if st.button("Extract Selected PDF", key="extract_button"):
                 pdf_bytes = extract_pdf(pdf_path, selected_res)
@@ -408,9 +439,13 @@ with tab1:
                         mime="application/pdf"
                     )
 
-                    # First page preview (keep as-is, no iframe)
-                    st.markdown("### First Page Preview:")
+                    # Inline PDF Viewer (new: full PDF preview)
+                    st.markdown("### Full PDF Preview:")
                     try:
+                        pdf_viewer(pdf_data, height=800)  # Adjust height as needed; supports width/zoom options too
+                    except Exception as e:
+                        st.warning(f"Could not render PDF viewer: {e}. Falling back to first-page image preview.")
+                        # Optional: Keep old image preview as fallback
                         doc = fitz.open(stream=pdf_data, filetype="pdf")
                         if len(doc) > 0:
                             page = doc.load_page(0)
@@ -419,37 +454,6 @@ with tab1:
                             img_bytes = pix.tobytes("png")
                             st.image(img_bytes, caption=f"Preview of {selected_res['acc']} - Page 1", width='stretch')
                         doc.close()
-                    except Exception as e:
-                        st.warning(f"Could not generate preview: {e}")
-        else:
-            if st.session_state.selected_res:
-                # Handle previous selection if no new search
-                selected_res = st.session_state.selected_res
-                if st.button("Extract Selected PDF", key="extract_prev_button"):
-                    pdf_bytes = extract_pdf(pdf_path, selected_res)
-                    if isinstance(pdf_bytes, tuple):
-                        st.error(pdf_bytes[1])
-                    else:
-                        pdf_data = pdf_bytes.getvalue()
-                        st.download_button(
-                            label="Download Extracted PDF",
-                            data=pdf_data,
-                            file_name=f"{county}_{type_var}_{selected_res['acc']}.pdf",
-                            mime="application/pdf"
-                        )
-                        
-                        st.markdown("### First Page Preview:")
-                        try:
-                            doc = fitz.open(stream=pdf_data, filetype="pdf")
-                            if len(doc) > 0:
-                                page = doc.load_page(0)
-                                mat = fitz.Matrix(2, 2)
-                                pix = page.get_pixmap(matrix=mat)
-                                img_bytes = pix.tobytes("png")
-                                st.image(img_bytes, caption=f"Preview of {selected_res['acc']} - Page 1", width='stretch')
-                            doc.close()
-                        except Exception as e:
-                            st.warning(f"Could not generate preview: {e}")
 
     else:
         st.warning("Please index all document types in Settings before searching.")
