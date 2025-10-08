@@ -148,8 +148,27 @@ def get_master_path(county):
 st.set_page_config(page_title="WY County Excel Comparison Tool", layout="wide")
 st.title("Wyoming County Excel Comparison Tool")
 
-if st.button("← Back to Home", key="back_home"):
-    st.switch_page("https://assessortools.com")
+# Back to Home button (styled to match dark theme)
+st.markdown(
+    """
+    <a href="https://assessortools.com" style="
+        text-decoration: none;
+        display: inline-block;
+        padding: 8px 16px;
+        background-color: #3B82F6;
+        color: white;
+        border-radius: 6px;
+        border: 1px solid #3B82F6;
+        font-weight: 500;
+        cursor: pointer;
+        margin-bottom: 20px;
+    " onmouseover="this.style.backgroundColor='#2563EB'; this.style.borderColor='#2563EB';" 
+       onmouseout="this.style.backgroundColor='#3B82F6'; this.style.borderColor='#3B82F6';">
+        ← Back to Home
+    </a>
+    """,
+    unsafe_allow_html=True
+)
 
 # Initialize session state
 if 'county' not in st.session_state:
