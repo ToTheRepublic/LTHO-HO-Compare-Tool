@@ -280,14 +280,26 @@ if 'selected_res' not in st.session_state:
 
 # Get logged-in county from auth
 logged_in_county = os.environ.get('REMOTE_USER', '').strip()
-if logged_in_county not in WY_COUNTIES:
-    st.error(f"Invalid county login: {logged_in_county}. Expected one of {', '.join(WY_COUNTIES)}")
-    st.stop()
-county = logged_in_county
-st.session_state.county = county
+
+if not logged_in_county or logged_in_county not in WY_COUNTIES:
+    st.warning("No valid login detected. Please select your county.")
+    county = st.selectbox("Choose a county:", WY_COUNTIES, key="county_select")
+    is_manual = True
+else:
+    county = logged_in_county
+    is_manual = False
+
+if county != st.session_state.get('county', None):
+    st.session_state.county = county
+    st.session_state.docs_indexed = {}
+    st.session_state.search_results = None
+    st.session_state.selected_res = None
+    st.rerun()
+
 county_dir = get_county_path(county)
 
-st.sidebar.write(f"Logged in as: {county} County")
+status_text = "Selected" if is_manual else "Logged in as"
+st.sidebar.write(f"{status_text}: {county} County")
 
 # Tabs
 tab1, tab2 = st.tabs(["Search", "Settings"])
