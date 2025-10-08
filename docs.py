@@ -23,6 +23,13 @@ DOC_TYPES = ["Notice of Value", "Declaration", "Tax Notice"]
 BASE_DIR = "county_docs"
 os.makedirs(BASE_DIR, exist_ok=True)
 
+def get_file_status(county_dir, doc_type, extension):
+    file_path = get_doc_path(county_dir, doc_type, extension)
+    if os.path.exists(file_path):
+        size_mb = os.path.getsize(file_path) / (1024 * 1024)  # MB
+        return f"✅ Exists ({size_mb:.1f} MB): {os.path.basename(file_path)}"
+    return f"❌ Missing: {doc_type}.{extension}"
+
 def get_county_path(county):
     county_dir = os.path.join(BASE_DIR, county.replace(" ", "_"))
     os.makedirs(county_dir, exist_ok=True)
@@ -312,8 +319,20 @@ with tab1:
     county_dir = get_county_path(county)
     st.info(f"Working with {county} County documents.")
 
+    # Auto-load indexed status from disk
+if county and county_dir:
+    for doc_type in DOC_TYPES:
+        index_file = get_doc_path(county_dir, doc_type, "json")
+        if doc_type not in st.session_state.docs_indexed:
+            st.session_state.docs_indexed[doc_type] = os.path.exists(index_file)
+
     # Search Section
 st.subheader("Search Documents")
+# Refresh indexed status if needed (runs every time)
+if county and county_dir:
+    for doc_type in DOC_TYPES:
+        index_file = get_doc_path(county_dir, doc_type, "json")
+        st.session_state.docs_indexed[doc_type] = os.path.exists(index_file)
 if all(doc_type in st.session_state.docs_indexed for doc_type in DOC_TYPES):
     with st.form("search_form"):
         type_var = st.selectbox("Document Type:", DOC_TYPES, key="doc_type")
@@ -375,11 +394,6 @@ if all(doc_type in st.session_state.docs_indexed for doc_type in DOC_TYPES):
                     mime="application/pdf"
                 )
 
-                # New tab link
-                pdf_base64 = base64.b64encode(pdf_data).decode()
-                st.markdown("### Options:")
-                st.markdown(f'<a href="data:application/pdf;base64,{pdf_base64}" target="_blank">Open PDF in New Tab</a> (Note: May fail for large files; use download instead.)', unsafe_allow_html=True)
-
                 # First page preview
                 st.markdown("### First Page Preview:")
                 try:
@@ -409,10 +423,7 @@ if all(doc_type in st.session_state.docs_indexed for doc_type in DOC_TYPES):
                         file_name=f"{county}_{type_var}_{selected_res['acc']}.pdf",
                         mime="application/pdf"
                     )
-
-                    pdf_base64 = base64.b64encode(pdf_data).decode()
-                    st.markdown(f'<a href="data:application/pdf;base64,{pdf_base64}" target="_blank">Open PDF in New Tab</a>', unsafe_allow_html=True)
-
+                    
                     st.markdown("### First Page Preview:")
                     try:
                         doc = fitz.open(stream=pdf_data, filetype="pdf")
@@ -434,41 +445,45 @@ with tab2:
     if not county:
         st.warning("Please select a county in the Search tab first.")
     else:
-        with st.expander("Upload PDFs and Excels", expanded=True):
+        with st.expander("Upload or Manage Files", expanded=True):
             col1, col2, col3 = st.columns(3)
-            pdf_paths = {}
-            excel_paths = {}
             for i, doc_type in enumerate(DOC_TYPES):
                 col = [col1, col2, col3][i]
                 with col:
                     st.write(f"**{doc_type}**")
-                    pdf_key = f"{doc_type.replace(' ', '_').lower()}_pdf"
-                    uploaded_pdf = st.file_uploader(f"Upload {doc_type} PDF", type=['pdf'], key=f"{pdf_key}_{county}")
+                    
+                    # PDF Status and Replace
+                    pdf_status = get_file_status(county_dir, doc_type, "pdf")
+                    st.write(f"**PDF:** {pdf_status}")
+                    uploaded_pdf = st.file_uploader(f"Replace {doc_type} PDF", type=['pdf'], key=f"{doc_type.replace(' ', '_').lower()}_pdf_replace_{county}")
                     if uploaded_pdf is not None:
                         pdf_path = get_doc_path(county_dir, doc_type, "pdf")
                         with open(pdf_path, "wb") as f:
                             f.write(uploaded_pdf.getbuffer())
-                        pdf_paths[doc_type] = pdf_path
-                        st.success(f"{doc_type} PDF uploaded.")
-
-                    excel_key = f"{doc_type.replace(' ', '_').lower()}_excel"
-                    uploaded_excel = st.file_uploader(f"Upload {doc_type} Excel", type=['xlsx', 'xls'], key=f"{excel_key}_{county}")
+                        st.success(f"{doc_type} PDF replaced!")
+                        st.session_state.docs_indexed[doc_type] = False  # Mark as needs re-index
+                        st.rerun()
+                    
+                    # Excel Status and Replace
+                    excel_status = get_file_status(county_dir, doc_type, "xlsx")
+                    st.write(f"**Excel:** {excel_status}")
+                    uploaded_excel = st.file_uploader(f"Replace {doc_type} Excel", type=['xlsx', 'xls'], key=f"{doc_type.replace(' ', '_').lower()}_excel_replace_{county}")
                     if uploaded_excel is not None:
                         excel_path = get_doc_path(county_dir, doc_type, "xlsx")
                         with open(excel_path, "wb") as f:
                             f.write(uploaded_excel.getbuffer())
-                        excel_paths[doc_type] = excel_path
-                        st.success(f"{doc_type} Excel uploaded.")
-
-            # Index buttons
-            col1, col2, col3 = st.columns(3)
-            for i, doc_type in enumerate(DOC_TYPES):
-                col = [col1, col2, col3][i]
-                with col:
-                    if st.button(f"Index {doc_type}", key=f"index_{doc_type}_{county}"):
-                        if doc_type in pdf_paths:
+                        st.success(f"{doc_type} Excel replaced!")
+                        st.session_state.docs_indexed[doc_type] = False  # Mark as needs re-index
+                        st.rerun()
+                    
+                    # Index/Re-Index Button
+                    index_text = "Re-Index" if st.session_state.docs_indexed.get(doc_type, False) else "Index"
+                    if st.button(f"{index_text} {doc_type}", key=f"index_{doc_type}_{county}"):
+                        pdf_path = get_doc_path(county_dir, doc_type, "pdf")
+                        excel_path = get_doc_path(county_dir, doc_type, "xlsx")
+                        if os.path.exists(pdf_path):
                             with st.spinner(f"Indexing {doc_type}..."):
-                                index_data = index_pdf(pdf_paths[doc_type], excel_paths.get(doc_type), doc_type)
+                                index_data = index_pdf(pdf_path, excel_path if os.path.exists(excel_path) else None, doc_type)
                                 save_index(county_dir, doc_type, index_data)
                                 st.session_state.docs_indexed[doc_type] = True
                                 st.success(f"{doc_type} indexed successfully!")
