@@ -270,6 +270,28 @@ def extract_pdf(pdf_path, selected_res):
 # Page config
 st.set_page_config(page_title="WY County Document Search", layout="wide")
 
+# Back to Home button
+st.markdown(
+    """
+    <a href="https://assessortools.com" target="_self" rel="noopener noreferrer" style="
+        text-decoration: none;
+        display: inline-block;
+        padding: 8px 16px;
+        background-color: #3B82F6;
+        color: white;
+        border-radius: 6px;
+        border: 1px solid #3B82F6;
+        font-weight: 500;
+        cursor: pointer;
+        margin-bottom: 20px;
+    " onmouseover="this.style.backgroundColor='#2563EB'; this.style.borderColor='#2563EB';" 
+       onmouseout="this.style.backgroundColor='#3B82F6'; this.style.borderColor='#3B82F6';">
+        ← Back to Home
+    </a>
+    """,
+    unsafe_allow_html=True
+)
+
 # Initialize session state
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
@@ -386,25 +408,14 @@ with tab1:
                         mime="application/pdf"
                     )
 
-                    # PDF options (using components for JS support)
+                    # PDF viewer using iframe
                     pdf_base64 = base64.b64encode(pdf_data).decode()
                     components.html(f"""
                         <div>
-                            <h3>PDF Actions:</h3>
-                            <button onclick="window.open('data:application/pdf;base64,{pdf_base64}', '_blank')">Open in New Tab</button>
+                            <h3>PDF Viewer:</h3>
+                            <iframe src="data:application/pdf;base64,{pdf_base64}" width="100%" height="600px" style="border: 1px solid #ccc;"></iframe>
                         </div>
-                        <script>
-                            // Ensure buttons are clickable
-                            document.querySelectorAll('button').forEach(btn => {{
-                                btn.style.padding = '10px 20px';
-                                btn.style.margin = '5px';
-                                btn.style.borderRadius = '4px';
-                                btn.style.border = '1px solid #ccc';
-                                btn.style.backgroundColor = '#f0f0f0';
-                                btn.style.cursor = 'pointer';
-                            }});
-                        </script>
-                    """, height=100)
+                    """, height=650)
 
                     # First page preview (keep as-is, no iframe)
                     st.markdown("### First Page Preview:")
@@ -436,25 +447,14 @@ with tab1:
                             mime="application/pdf"
                         )
 
-                        # PDF options (using components for JS support)
+                        # PDF viewer using iframe
                         pdf_base64 = base64.b64encode(pdf_data).decode()
                         components.html(f"""
                             <div>
-                                <h3>PDF Actions:</h3>
-                                <button onclick="window.open('data:application/pdf;base64,{pdf_base64}', '_blank')">Open in New Tab</button>
+                                <h3>PDF Viewer:</h3>
+                                <iframe src="data:application/pdf;base64,{pdf_base64}" width="100%" height="600px" style="border: 1px solid #ccc;"></iframe>
                             </div>
-                            <script>
-                                // Ensure buttons are clickable
-                                document.querySelectorAll('button').forEach(btn => {{
-                                    btn.style.padding = '10px 20px';
-                                    btn.style.margin = '5px';
-                                    btn.style.borderRadius = '4px';
-                                    btn.style.border = '1px solid #ccc';
-                                    btn.style.backgroundColor = '#f0f0f0';
-                                    btn.style.cursor = 'pointer';
-                                }});
-                            </script>
-                        """, height=100)
+                        """, height=650)
                         
                         st.markdown("### First Page Preview:")
                         try:
