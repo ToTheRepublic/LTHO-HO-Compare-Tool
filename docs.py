@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import os
 import re
@@ -10,6 +9,7 @@ import time
 from datetime import datetime
 import base64
 import urllib.parse
+import streamlit.components.v1 as components
 
 # Wyoming counties list
 WY_COUNTIES = [
@@ -240,55 +240,35 @@ def search_matches(index_data, query, search_type):
                     'business_name': data.get("business_name", ""),
                     'pages': data['pages']
                 })
-
     return results
 
-def extract_pdf(pdf_path, res):
-    try:
-        doc = fitz.open(pdf_path)
-        pdf_bytes = io.BytesIO()
-        doc.select([p - 1 for p in res['pages']])
-        doc.save(pdf_bytes)
-        doc.close()
-        pdf_bytes.seek(0)
-        return pdf_bytes
-    except Exception as e:
-        return None, f"Error extracting PDF: {str(e)}"
-
-def get_address_from_index(res):
-    return res.get('address', '')
-
 def get_business_name(res):
-    return res.get('business_name', '')
+    return res.get('business_name', '') or 'N/A'
 
 def get_ownership_name(res):
-    return res.get('ownership_name', '')
+    return res.get('ownership_name', '') or 'N/A'
 
-# Streamlit App
-st.set_page_config(page_title="WY County Document Search Tool", layout="wide")
-st.title("Wyoming County Document Search Tool")
+def get_address_from_index(res):
+    return res.get('address', '') or 'N/A'
 
-# Back to Home button
-st.markdown(
-    """
-    <a href="https://assessortools.com" target="_self" rel="noopener noreferrer" style="
-        text-decoration: none;
-        display: inline-block;
-        padding: 8px 16px;
-        background-color: #3B82F6;
-        color: white;
-        border-radius: 6px;
-        border: 1px solid #3B82F6;
-        font-weight: 500;
-        cursor: pointer;
-        margin-bottom: 20px;
-    " onmouseover="this.style.backgroundColor='#2563EB'; this.style.borderColor='#2563EB';" 
-       onmouseout="this.style.backgroundColor='#3B82F6'; this.style.borderColor='#3B82F6';">
-        ← Back to Home
-    </a>
-    """,
-    unsafe_allow_html=True
-)
+def extract_pdf(pdf_path, selected_res):
+    try:
+        doc = fitz.open(pdf_path)
+        pages = selected_res['pages']
+        output = fitz.open()
+        for page_num in sorted(pages):
+            page = doc[page_num - 1]  # 1-based to 0-based
+            output.insert_pdf(doc, from_page=page.number, to_page=page.number)
+        doc.close()
+        output_bytes = io.BytesIO()
+        output.save(output_bytes)
+        output.close()
+        return output_bytes
+    except Exception as e:
+        return (None, f"Error extracting PDF: {str(e)}")
+
+# Page config
+st.set_page_config(page_title="WY County Document Search", layout="wide")
 
 # Initialize session state
 if 'county' not in st.session_state:
@@ -303,166 +283,104 @@ if 'selected_res' not in st.session_state:
 # Tabs
 tab1, tab2 = st.tabs(["Search", "Settings"])
 
+# Get logged-in county from auth (debug: shows if REMOTE_USER passes)
+import os
+logged_in_county = os.environ.get('REMOTE_USER', '').strip()
+st.sidebar.write(f"Debug - Logged in as: '{logged_in_county}'")  # Remove in prod
+
+# Get county from URL param if present (fallback for persistence)
+query_params = st.query_params
+url_county = query_params.get("county", logged_in_county if logged_in_county in WY_COUNTIES else None)
+if url_county:
+    url_county = urllib.parse.unquote(url_county)
+
+default_county = url_county if url_county in WY_COUNTIES else st.session_state.get("county", None)
+
 with tab1:
-    # County selection (move to top if needed, but keep in search for now)
-    # Get county from URL param if present
-    query_params = st.query_params
-    default_county = query_params.get("county", st.session_state.get("county", None))
-    if default_county:
-        # Decode URL-encoded spaces
-        default_county = urllib.parse.unquote(default_county)
-        if default_county in WY_COUNTIES:
-            st.session_state.county = default_county  # Pre-set session
+    st.subheader("Search Documents")
+    if all(doc_type in st.session_state.docs_indexed for doc_type in DOC_TYPES):
+        # Refresh indexed status if needed (runs every time)
+        if st.session_state.county and 'county_dir' in locals():
+            for doc_type in DOC_TYPES:
+                index_file = get_doc_path(county_dir, doc_type, "json")
+                st.session_state.docs_indexed[doc_type] = os.path.exists(index_file)
 
-    # Get logged-in county from auth (debug: shows if REMOTE_USER passes)
-    import os
-    logged_in_county = os.environ.get('REMOTE_USER', '').strip()
-    st.sidebar.write(f"Debug - Logged in as: '{logged_in_county}'")  # Remove in prod
-
-    # Get county from URL param if present (fallback for persistence)
-    query_params = st.query_params
-    url_county = query_params.get("county", logged_in_county if logged_in_county in WY_COUNTIES else None)
-    if url_county:
-        url_county = urllib.parse.unquote(url_county)
-
-    default_county = url_county if url_county in WY_COUNTIES else st.session_state.get("county", None)
-
-    st.subheader("Select Your County")
-    county = st.selectbox("Choose a county:", WY_COUNTIES, 
-                        index=WY_COUNTIES.index(default_county) if default_county else 0, 
-                        key="county_select")
-    if county != st.session_state.county:
-        st.session_state.county = county
-        # Update URL param for persistence
-        st.query_params["county"] = urllib.parse.quote(county)
-        st.session_state.docs_indexed = {}
-        st.session_state.search_results = None
-        st.session_state.selected_res = None
-        st.rerun()
-
-    if not county:
-        st.warning("Please select a county to proceed.")
-        st.stop()
-
-    county_dir = get_county_path(county)
-    st.info(f"Working with {county} County documents.")
-
-    # Auto-load indexed status from disk
-if county and county_dir:
-    for doc_type in DOC_TYPES:
-        index_file = get_doc_path(county_dir, doc_type, "json")
-        if doc_type not in st.session_state.docs_indexed:
-            st.session_state.docs_indexed[doc_type] = os.path.exists(index_file)
-
-    # Search Section
-st.subheader("Search Documents")
-# Refresh indexed status if needed (runs every time)
-if county and county_dir:
-    for doc_type in DOC_TYPES:
-        index_file = get_doc_path(county_dir, doc_type, "json")
-        st.session_state.docs_indexed[doc_type] = os.path.exists(index_file)
-if all(doc_type in st.session_state.docs_indexed for doc_type in DOC_TYPES):
-    with st.form("search_form"):
-        type_var = st.selectbox("Document Type:", DOC_TYPES, key="doc_type")
-        query = st.text_input("Search (Account/Local/Name/Address):", key="search_query", placeholder="e.g., R0001234 or 1234 or 'Smith' or 'Main St'")
-        submitted = st.form_submit_button("Search Matches")
-
-    # Define pdf_path here so it's always available (uses current type_var)
-    pdf_path = get_doc_path(county_dir, type_var, "pdf")
-    if not os.path.exists(pdf_path):
-        st.warning("PDF not found. Please upload in Settings.")
-
-    if submitted:
-        index_data = load_index(county_dir, type_var)
-        with st.spinner("Searching..."):
-            results = search_matches(index_data, query, type_var)
-            if not results:
-                st.error("No matches found.")
+        with st.form("search_form"):
+            st.subheader("Select Your County")
+            county = st.selectbox("Choose a county:", WY_COUNTIES, 
+                                  index=WY_COUNTIES.index(default_county) if default_county else 0, 
+                                  key="county_select")
+            if county != st.session_state.county:
+                st.session_state.county = county
+                # Update URL param for persistence
+                st.query_params["county"] = urllib.parse.quote(county)
+                st.session_state.docs_indexed = {}
                 st.session_state.search_results = None
-            else:
-                st.success(f"Found {len(results)} match(es).")
-                st.session_state.search_results = results
-                st.session_state.selected_res = None  # Reset selection
-        st.rerun()
+                st.session_state.selected_res = None
+                st.rerun()
 
-    # Display results as radio list if available
-    if st.session_state.search_results:
-        results = st.session_state.search_results
-        display_options = [f"{r['acc']} - {r['ownership_name'][:30]}{'...' if len(r['ownership_name']) > 30 else ''} ({r['address'][:20]}{'...' if len(r['address']) > 20 else ''})" for r in results]
-        selected_idx = st.radio("Select a match to extract:", range(len(display_options)), format_func=lambda idx: display_options[idx], key="match_radio")
-        selected_res = results[selected_idx]
-        st.session_state.selected_res = selected_res
+            if not county:
+                st.warning("Please select a county to proceed.")
+                st.stop()
 
-        # Show details of selected
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.write("**Account:**")
-            st.write(f"{selected_res['acc']} (Local: {selected_res['local_number']})")
-        with col2:
-            st.write("**Business Name:**")
-            st.write(get_business_name(selected_res))
-        with col3:
-            st.write("**Ownership Name:**")
-            st.write(get_ownership_name(selected_res))
-        with col4:
-            st.write("**Address:**")
-            st.write(get_address_from_index(selected_res))
+            county_dir = get_county_path(county)
 
-        # Extract and download button
-        if st.button("Extract Selected PDF", key="extract_button"):
-            pdf_bytes = extract_pdf(pdf_path, selected_res)
-            if isinstance(pdf_bytes, tuple):  # Error case
-                st.error(pdf_bytes[1])
-            else:
-                pdf_data = pdf_bytes.getvalue()
-                st.download_button(
-                    label="Download Extracted PDF",
-                    data=pdf_data,
-                    file_name=f"{county}_{type_var}_{selected_res['acc']}.pdf",
-                    mime="application/pdf"
-                )
+            # Auto-load indexed status from disk
+            if county and county_dir:
+                for doc_type in DOC_TYPES:
+                    index_file = get_doc_path(county_dir, doc_type, "json")
+                    if doc_type not in st.session_state.docs_indexed:
+                        st.session_state.docs_indexed[doc_type] = os.path.exists(index_file)
 
-        # PDF options (using components for JS support)
-        pdf_base64 = base64.b64encode(pdf_data).decode()
-        components.html(f"""
-            <div>
-                <h3>PDF Actions:</h3>
-                <button onclick="window.open('data:application/pdf;base64,{pdf_base64}', '_blank')">Open in New Tab (Adobe-Compatible)</button>
-                <button onclick="window.print()">Print Current Page (Download First for Full PDF)</button>
-            </div>
-            <script>
-                // Ensure buttons are clickable
-                document.querySelectorAll('button').forEach(btn => {{
-                    btn.style.padding = '10px 20px';
-                    btn.style.margin = '5px';
-                    btn.style.borderRadius = '4px';
-                    btn.style.border = '1px solid #ccc';
-                    btn.style.backgroundColor = '#f0f0f0';
-                    btn.style.cursor = 'pointer';
-                }});
-            </script>
-        """, height=100)
+            type_var = st.selectbox("Document Type:", DOC_TYPES, key="doc_type")
+            query = st.text_input("Search (Account/Local/Name/Address):", key="search_query", placeholder="e.g., R0001234 or 1234 or 'Smith' or 'Main St'")
+            submitted = st.form_submit_button("Search Matches")
 
-        # First page preview (keep as-is, no iframe)
-        st.markdown("### First Page Preview:")
-        try:
-            doc = fitz.open(stream=pdf_data, filetype="pdf")
-            if len(doc) > 0:
-                page = doc.load_page(0)
-                mat = fitz.Matrix(2, 2)
-                pix = page.get_pixmap(matrix=mat)
-                img_bytes = pix.tobytes("png")
-                st.image(img_bytes, caption=f"Preview of {selected_res['acc']} - Page 1", width='stretch')
-            doc.close()
-        except Exception as e:
-            st.warning(f"Could not generate preview: {e}")
-    else:
-        if st.session_state.selected_res:
-            # Handle previous selection if no new search
-            selected_res = st.session_state.selected_res
-            if st.button("Extract Selected PDF", key="extract_prev_button"):
+        # Define pdf_path here so it's always available (uses current type_var)
+        pdf_path = get_doc_path(county_dir, type_var, "pdf")
+        if not os.path.exists(pdf_path):
+            st.warning("PDF not found. Please upload in Settings.")
+
+        if submitted:
+            index_data = load_index(county_dir, type_var)
+            with st.spinner("Searching..."):
+                results = search_matches(index_data, query, type_var)
+                if not results:
+                    st.error("No matches found.")
+                    st.session_state.search_results = None
+                else:
+                    st.success(f"Found {len(results)} match(es).")
+                    st.session_state.search_results = results
+                    st.session_state.selected_res = None  # Reset selection
+            st.rerun()
+
+        # Display results as radio list if available
+        if st.session_state.search_results:
+            results = st.session_state.search_results
+            display_options = [f"{r['acc']} - {r['ownership_name'][:30]}{'...' if len(r['ownership_name']) > 30 else ''} ({r['address'][:20]}{'...' if len(r['address']) > 20 else ''})" for r in results]
+            selected_idx = st.radio("Select a match to extract:", range(len(display_options)), format_func=lambda idx: display_options[idx], key="match_radio")
+            selected_res = results[selected_idx]
+            st.session_state.selected_res = selected_res
+
+            # Show details of selected
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.write("**Account:**")
+                st.write(f"{selected_res['acc']} (Local: {selected_res['local_number']})")
+            with col2:
+                st.write("**Business Name:**")
+                st.write(get_business_name(selected_res))
+            with col3:
+                st.write("**Ownership Name:**")
+                st.write(get_ownership_name(selected_res))
+            with col4:
+                st.write("**Address:**")
+                st.write(get_address_from_index(selected_res))
+
+            # Extract and download button
+            if st.button("Extract Selected PDF", key="extract_button"):
                 pdf_bytes = extract_pdf(pdf_path, selected_res)
-                if isinstance(pdf_bytes, tuple):
+                if isinstance(pdf_bytes, tuple):  # Error case
                     st.error(pdf_bytes[1])
                 else:
                     pdf_data = pdf_bytes.getvalue()
@@ -474,41 +392,92 @@ if all(doc_type in st.session_state.docs_indexed for doc_type in DOC_TYPES):
                     )
 
                     # PDF options (using components for JS support)
-        pdf_base64 = base64.b64encode(pdf_data).decode()
-        components.html(f"""
-            <div>
-                <h3>PDF Actions:</h3>
-                <button onclick="window.open('data:application/pdf;base64,{pdf_base64}', '_blank')">Open in New Tab (Adobe-Compatible)</button>
-                <button onclick="window.print()">Print Current Page (Download First for Full PDF)</button>
-            </div>
-            <script>
-                // Ensure buttons are clickable
-                document.querySelectorAll('button').forEach(btn => {{
-                    btn.style.padding = '10px 20px';
-                    btn.style.margin = '5px';
-                    btn.style.borderRadius = '4px';
-                    btn.style.border = '1px solid #ccc';
-                    btn.style.backgroundColor = '#f0f0f0';
-                    btn.style.cursor = 'pointer';
-                }});
-            </script>
-        """, height=100)
+                    pdf_base64 = base64.b64encode(pdf_data).decode()
+                    components.html(f"""
+                        <div>
+                            <h3>PDF Actions:</h3>
+                            <button onclick="window.open('data:application/pdf;base64,{pdf_base64}', '_blank')">Open in New Tab (Adobe-Compatible)</button>
+                            <button onclick="window.print()">Print Current Page (Download First for Full PDF)</button>
+                        </div>
+                        <script>
+                            // Ensure buttons are clickable
+                            document.querySelectorAll('button').forEach(btn => {{
+                                btn.style.padding = '10px 20px';
+                                btn.style.margin = '5px';
+                                btn.style.borderRadius = '4px';
+                                btn.style.border = '1px solid #ccc';
+                                btn.style.backgroundColor = '#f0f0f0';
+                                btn.style.cursor = 'pointer';
+                            }});
+                        </script>
+                    """, height=100)
 
-        st.markdown("### First Page Preview:")
-        try:
-            doc = fitz.open(stream=pdf_data, filetype="pdf")
-            if len(doc) > 0:
-                page = doc.load_page(0)
-                mat = fitz.Matrix(2, 2)
-                pix = page.get_pixmap(matrix=mat)
-                img_bytes = pix.tobytes("png")
-                st.image(img_bytes, caption=f"Preview of {selected_res['acc']} - Page 1", width='stretch')
-            doc.close()
-        except Exception as e:
-            st.warning(f"Could not generate preview: {e}")
+                    # First page preview (keep as-is, no iframe)
+                    st.markdown("### First Page Preview:")
+                    try:
+                        doc = fitz.open(stream=pdf_data, filetype="pdf")
+                        if len(doc) > 0:
+                            page = doc.load_page(0)
+                            mat = fitz.Matrix(2, 2)
+                            pix = page.get_pixmap(matrix=mat)
+                            img_bytes = pix.tobytes("png")
+                            st.image(img_bytes, caption=f"Preview of {selected_res['acc']} - Page 1", width='stretch')
+                        doc.close()
+                    except Exception as e:
+                        st.warning(f"Could not generate preview: {e}")
+        else:
+            if st.session_state.selected_res:
+                # Handle previous selection if no new search
+                selected_res = st.session_state.selected_res
+                if st.button("Extract Selected PDF", key="extract_prev_button"):
+                    pdf_bytes = extract_pdf(pdf_path, selected_res)
+                    if isinstance(pdf_bytes, tuple):
+                        st.error(pdf_bytes[1])
+                    else:
+                        pdf_data = pdf_bytes.getvalue()
+                        st.download_button(
+                            label="Download Extracted PDF",
+                            data=pdf_data,
+                            file_name=f"{county}_{type_var}_{selected_res['acc']}.pdf",
+                            mime="application/pdf"
+                        )
 
-else:
-    st.warning("Please index all document types in Settings before searching.")
+                        # PDF options (using components for JS support)
+                        pdf_base64 = base64.b64encode(pdf_data).decode()
+                        components.html(f"""
+                            <div>
+                                <h3>PDF Actions:</h3>
+                                <button onclick="window.open('data:application/pdf;base64,{pdf_base64}', '_blank')">Open in New Tab (Adobe-Compatible)</button>
+                                <button onclick="window.print()">Print Current Page (Download First for Full PDF)</button>
+                            </div>
+                            <script>
+                                // Ensure buttons are clickable
+                                document.querySelectorAll('button').forEach(btn => {{
+                                    btn.style.padding = '10px 20px';
+                                    btn.style.margin = '5px';
+                                    btn.style.borderRadius = '4px';
+                                    btn.style.border = '1px solid #ccc';
+                                    btn.style.backgroundColor = '#f0f0f0';
+                                    btn.style.cursor = 'pointer';
+                                }});
+                            </script>
+                        """, height=100)
+                        
+                        st.markdown("### First Page Preview:")
+                        try:
+                            doc = fitz.open(stream=pdf_data, filetype="pdf")
+                            if len(doc) > 0:
+                                page = doc.load_page(0)
+                                mat = fitz.Matrix(2, 2)
+                                pix = page.get_pixmap(matrix=mat)
+                                img_bytes = pix.tobytes("png")
+                                st.image(img_bytes, caption=f"Preview of {selected_res['acc']} - Page 1", width='stretch')
+                            doc.close()
+                        except Exception as e:
+                            st.warning(f"Could not generate preview: {e}")
+
+    else:
+        st.warning("Please index all document types in Settings before searching.")
 
 with tab2:
     st.subheader("Settings: Upload and Index Documents")
