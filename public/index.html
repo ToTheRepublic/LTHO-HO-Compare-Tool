@@ -3,100 +3,141 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Assessor Tools - Wyoming County Utilities</title>
+    <title>Assessor Tools</title>
     <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #0F1117;
-            color: #FFFFFF;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            line-height: 1.6;
-        }
-        h1 {
-            color: #FFFFFF;
-            font-size: 2.5em;
-            font-weight: 600;
-            margin-bottom: 10px;
-        }
-        p {
-            color: #D1D5DB;
-            font-size: 1.1em;
-            margin-bottom: 30px;
-        }
-        .tool {
-            border: 1px solid #374151;
-            margin: 20px 0;
-            padding: 20px;
-            border-radius: 8px;
-            background-color: #1F2937;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-        }
-        .tool h2 {
-            color: #FFFFFF;
-            font-size: 1.5em;
-            margin-bottom: 10px;
-        }
-        .tool p {
-            color: #D1D5DB;
-            margin-bottom: 15px;
-        }
-        a {
-            background-color: #3B82F6;
-            color: #FFFFFF;
-            padding: 12px 24px;
-            text-decoration: none;
-            border-radius: 6px;
-            font-weight: 500;
-            display: inline-block;
-            transition: background-color 0.2s;
-            border: 1px solid #3B82F6;
-        }
-        a:hover {
-            background-color: #2563EB;
-            border-color: #2563EB;
-        }
-        .header {
-            text-align: center;
-            margin-bottom: 40px;
-        }
-        .warning {
-            background-color: #F59E0B;
-            color: #111827;
-            padding: 10px;
-            border-radius: 6px;
-            margin: 10px 0;
-            font-weight: 500;
-        }
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        header { text-align: center; background: #f0f0f0; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .login-section { background: #fff; border: 1px solid #ddd; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .tools-section { display: none; }
+        .tools-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .tool-card { border: 1px solid #ddd; padding: 20px; border-radius: 8px; text-align: center; }
+        .tool-card h3 { margin-top: 0; }
+        .launch-btn { background: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block; }
+        .launch-btn:hover { background: #0056b3; }
+        .logout-btn { background: #dc3545; color: white; padding: 5px 10px; text-decoration: none; border-radius: 4px; float: right; }
+        .current-county { background: #d4edda; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-weight: bold; }
+        input, select { width: 100%; padding: 8px; margin: 5px 0; box-sizing: border-box; }
+        button { background: #28a745; color: white; padding: 10px; border: none; border-radius: 4px; cursor: pointer; width: 100%; }
+        button:hover { background: #218838; }
+        .error { color: red; }
+        .success { color: green; }
     </style>
 </head>
 <body>
-    <div class="header">
+    <header>
         <h1>Assessor Tools</h1>
         <p>Your hub for Wyoming county assessment utilities</p>
+    </header>
+
+    <div id="loginSection" class="login-section">
+        <h2>Login Required</h2>
+        <p>Use your county name as username and password (e.g., Username: "Hot Springs", Password: "HotSprings1!"). Credentials persist in your browser.</p>
+        
+        <form id="loginForm">
+            <label for="county">County:</label>
+            <select id="county" required>
+                <option value="">Select County</option>
+                <option value="Albany">Albany</option>
+                <option value="Big Horn">Big Horn</option>
+                <option value="Campbell">Campbell</option>
+                <option value="Carbon">Carbon</option>
+                <option value="Converse">Converse</option>
+                <option value="Crook">Crook</option>
+                <option value="Fremont">Fremont</option>
+                <option value="Goshen">Goshen</option>
+                <option value="Hot Springs">Hot Springs</option>
+                <option value="Johnson">Johnson</option>
+                <option value="Laramie">Laramie</option>
+                <option value="Lincoln">Lincoln</option>
+                <option value="Natrona">Natrona</option>
+                <option value="Niobrara">Niobrara</option>
+                <option value="Park">Park</option>
+                <option value="Platte">Platte</option>
+                <option value="Sheridan">Sheridan</option>
+                <option value="Sublette">Sublette</option>
+                <option value="Sweetwater">Sweetwater</option>
+                <option value="Teton">Teton</option>
+                <option value="Uinta">Uinta</option>
+                <option value="Washakie">Washakie</option>
+                <option value="Weston">Weston</option>
+            </select>
+            
+            <label for="password">Password:</label>
+            <input type="password" id="password" required>
+            
+            <button type="submit">Login</button>
+        </form>
+        
+        <p id="loginMessage"></p>
     </div>
-    
-    <div class="auth-note">
-        <strong>Login Required:</strong> Use your county name as username and password (e.g., Username: "Hot Springs", Password: "HotSprings1!"). Credentials persist in your browser.
+
+    <div id="toolsSection" class="tools-section">
+        <div id="currentCounty" class="current-county" style="display: none;"></div>
+        <a href="#" id="logoutBtn" class="logout-btn" style="display: none;">Logout</a>
+        
+        <h2>Tools</h2>
+        <div class="tools-grid">
+            <div class="tool-card">
+                <h3>LTHO HO Compare Tool</h3>
+                <p>Compare Excel lists for matching accounts to ensure taxpayers who had the LTHO Exemption last year can sign up for it this year as well.</p>
+                <a href="#" id="lthoLink" class="launch-btn">Launch LTHO Tool</a>
+            </div>
+            
+            <div class="tool-card">
+                <h3>County Document Search Tool</h3>
+                <p>Search, extract, and download PDF documents by local tax number, account number, name, or street address.</p>
+                <a href="#" id="docsLink" class="launch-btn">Launch Docs Tool</a>
+            </div>
+        </div>
     </div>
- 
-    <div class="tool">
-        <h2>LTHO HO Compare Tool</h2>
-        <p>Compare Excel lists for matching accounts to ensure taxpayers who had the LTHO Exemption last year can sign up for it this year as well.</p>
-        <a href="/ltho">Launch LTHO Tool</a>
-    </div>
-    <div class="tool">
-        <h2>County Document Search Tool</h2>
-        <p>Search, extract, and download PDF documents by local tax number, account number, name, or street address.</p>
-        <a href="/docs">Launch Docs Tool</a>
-    </div>
-    <!-- Add more tools here, e.g.:
-    <div class="tool">
-        <h2>New Tool Name</h2>
-        <p>Description here.</p>
-        <a href="/newtool">Launch Tool</a>
-    </div>
-    -->
+
+    <script>
+        const counties = ['Albany', 'Big Horn', 'Campbell', 'Carbon', 'Converse', 'Crook', 'Fremont', 'Goshen', 'Hot Springs', 'Johnson', 'Laramie', 'Lincoln', 'Natrona', 'Niobrara', 'Park', 'Platte', 'Sheridan', 'Sublette', 'Sweetwater', 'Teton', 'Uinta', 'Washakie', 'Weston'];
+
+        // Check if already logged in
+        const savedCounty = localStorage.getItem('loggedCounty');
+        if (savedCounty) {
+            showTools(savedCounty);
+        }
+
+        // Login form submit
+        document.getElementById('loginForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const county = document.getElementById('county').value;
+            const password = document.getElementById('password').value;
+            const expectedPassword = county.replace(/\s+/g, '') + '1!';
+            
+            const messageEl = document.getElementById('loginMessage');
+            if (password === expectedPassword) {
+                localStorage.setItem('loggedCounty', county);
+                messageEl.innerHTML = '<span class="success">Login successful!</span>';
+                showTools(county);
+            } else {
+                messageEl.innerHTML = '<span class="error">Invalid password. Please try again.</span>';
+            }
+        });
+
+        // Show tools section
+        function showTools(county) {
+            document.getElementById('loginSection').style.display = 'none';
+            document.getElementById('toolsSection').style.display = 'block';
+            document.getElementById('currentCounty').textContent = `Logged in as: ${county} County`;
+            document.getElementById('currentCounty').style.display = 'block';
+            document.getElementById('logoutBtn').style.display = 'inline-block';
+            document.getElementById('logoutBtn').textContent = `Logout (${county})`;
+            
+            // Update links with county param
+            const encodedCounty = encodeURIComponent(county);
+            document.getElementById('lthoLink').href = `app.py?county=${encodedCounty}`;
+            document.getElementById('docsLink').href = `docs.py?county=${encodedCounty}`;
+        }
+
+        // Logout
+        document.getElementById('logoutBtn').addEventListener('click', function(e) {
+            e.preventDefault();
+            localStorage.removeItem('loggedCounty');
+            location.reload();
+        });
+    </script>
 </body>
 </html>

@@ -271,18 +271,6 @@ def extract_pdf(pdf_path, selected_res):
 # Page config
 st.set_page_config(page_title="WY County Document Search", layout="wide")
 
-# Initialize session state
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-if 'county' not in st.session_state:
-    st.session_state.county = None
-if 'docs_indexed' not in st.session_state:
-    st.session_state.docs_indexed = {}
-if 'search_results' not in st.session_state:
-    st.session_state.search_results = None
-if 'selected_res' not in st.session_state:
-    st.session_state.selected_res = None
-
 # Back to Home button
 st.markdown(
     """
@@ -305,212 +293,199 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Login / Landing Page Logic
-if not st.session_state.logged_in:
-    st.title("WY County Document Search")
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.markdown("""
-        **Welcome!**  
-        Log in to access document search and settings for your county.  
-        This tool allows you to upload, index, and search PDFs like Notices of Value, Declarations, and Tax Notices.
-        """)
-    with col2:
-        st.empty()  # Spacer to align
+# Initialize session state
+if 'county' not in st.session_state:
+    st.session_state.county = None
+if 'docs_indexed' not in st.session_state:
+    st.session_state.docs_indexed = {}
+if 'search_results' not in st.session_state:
+    st.session_state.search_results = None
+if 'selected_res' not in st.session_state:
+    st.session_state.selected_res = None
 
-    st.markdown("---")
-    st.subheader("Login Form")
-    with st.form("login_form", clear_on_submit=True):
-        county = st.selectbox("Select County:", WY_COUNTIES)
-        password = st.text_input("Password:", type="password")
-        col_btn, _ = st.columns([1, 3])
-        with col_btn:
-            submitted = st.form_submit_button("Login")
-        if submitted:
-            if password == "wyoming2025":  # Change this to a secure password
-                st.session_state.county = county
-                st.session_state.logged_in = True
-                st.success(f"Logged in as {county} County")
-                st.rerun()
-            else:
-                st.error("Invalid password. Please try again.")
+# Check for county from query params
+query_params = st.query_params
+if 'county' in query_params:
+    county = query_params['county'][0]
+    if county not in WY_COUNTIES:
+        st.error("Invalid county selected. Please log in from the home page.")
+        st.stop()
+    st.session_state.county = county
 else:
-    # Logged in: Show county at top
-    county = st.session_state.county
-    st.title(f"WY County Document Search - {county} County")
+    st.warning("No county selected. Please log in from the home page.")
+    st.stop()
 
-    # Get county dir
-    county_dir = get_county_path(county)
+# Use county from session state
+county = st.session_state.county
+st.title(f"WY County Document Search - {county} County")
+county_dir = get_county_path(county)
 
-    # Sidebar with county display and logout
-    st.sidebar.write(f"**Current County:** {county}")
-    if st.button("Logout", key="logout"):
-        for key in ['logged_in', 'county', 'docs_indexed', 'search_results', 'selected_res']:
-            if key in st.session_state:
-                del st.session_state[key]
-        st.rerun()
+# Sidebar with county display and logout link
+with st.sidebar:
+    st.write(f"**Current County:** {county}")
+    st.markdown(f"[Logout](https://assessortools.com)")
 
-    # Auto-load indexed status from disk
-    if county and county_dir:
-        for doc_type in DOC_TYPES:
-            index_file = get_doc_path(county_dir, doc_type, "json")
-            if doc_type not in st.session_state.docs_indexed:
-                st.session_state.docs_indexed[doc_type] = os.path.exists(index_file)
-
-    # Refresh indexed status if needed
-    if county and county_dir:
-        for doc_type in DOC_TYPES:
-            index_file = get_doc_path(county_dir, doc_type, "json")
+# Auto-load indexed status from disk
+if county and county_dir:
+    for doc_type in DOC_TYPES:
+        index_file = get_doc_path(county_dir, doc_type, "json")
+        if doc_type not in st.session_state.docs_indexed:
             st.session_state.docs_indexed[doc_type] = os.path.exists(index_file)
 
-    # Tabs
-    tab1, tab2 = st.tabs(["Search", "Settings"])
+# Refresh indexed status if needed
+if county and county_dir:
+    for doc_type in DOC_TYPES:
+        index_file = get_doc_path(county_dir, doc_type, "json")
+        st.session_state.docs_indexed[doc_type] = os.path.exists(index_file)
 
-    with tab1:
-        st.subheader("Search Documents")
-        
-        if all(doc_type in st.session_state.docs_indexed for doc_type in DOC_TYPES):
-            with st.form("search_form"):
-                type_var = st.selectbox("Document Type:", DOC_TYPES, key="doc_type")
-                query = st.text_input("Search (Account/Local/Name/Address):", key="search_query", placeholder="e.g., R0001234 or 1234 or 'Smith' or 'Main St'")
-                submitted = st.form_submit_button("Search Matches")
+# Tabs
+tab1, tab2 = st.tabs(["Search", "Settings"])
 
-            # Define pdf_path here so it's always available (uses current type_var)
-            pdf_path = get_doc_path(county_dir, type_var, "pdf")
-            if not os.path.exists(pdf_path):
-                st.warning("PDF not found. Please upload in Settings.")
+with tab1:
+    st.subheader("Search Documents")
+    
+    if all(doc_type in st.session_state.docs_indexed for doc_type in DOC_TYPES):
+        with st.form("search_form"):
+            type_var = st.selectbox("Document Type:", DOC_TYPES, key="doc_type")
+            query = st.text_input("Search (Account/Local/Name/Address):", key="search_query", placeholder="e.g., R0001234 or 1234 or 'Smith' or 'Main St'")
+            submitted = st.form_submit_button("Search Matches")
 
-            if submitted:
-                index_data = load_index(county_dir, type_var)
-                with st.spinner("Searching..."):
-                    results = search_matches(index_data, query, type_var)
-                    if not results:
-                        st.error("No matches found.")
-                        st.session_state.search_results = None
+        # Define pdf_path here so it's always available (uses current type_var)
+        pdf_path = get_doc_path(county_dir, type_var, "pdf")
+        if not os.path.exists(pdf_path):
+            st.warning("PDF not found. Please upload in Settings.")
+
+        if submitted:
+            index_data = load_index(county_dir, type_var)
+            with st.spinner("Searching..."):
+                results = search_matches(index_data, query, type_var)
+                if not results:
+                    st.error("No matches found.")
+                    st.session_state.search_results = None
+                else:
+                    st.success(f"Found {len(results)} match(es).")
+                    st.session_state.search_results = results
+                    st.session_state.selected_res = None  # Reset selection
+            st.rerun()
+
+        # Display results as radio list if available
+        if st.session_state.search_results:
+            results = st.session_state.search_results
+            display_options = [f"{r['acc']} - {r['ownership_name'][:30]}{'...' if len(r['ownership_name']) > 30 else ''} ({r['address'][:20]}{'...' if len(r['address']) > 20 else ''})" for r in results]
+            selected_idx = st.radio("Select a match to extract:", range(len(display_options)), format_func=lambda idx: display_options[idx], key="match_radio")
+            selected_res = results[selected_idx]
+            st.session_state.selected_res = selected_res
+
+            # Show details of selected
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.write("**Account:**")
+                st.write(f"{selected_res['acc']} (Local: {selected_res['local_number']})")
+            with col2:
+                st.write("**Business Name:**")
+                st.write(get_business_name(selected_res))
+            with col3:
+                st.write("**Ownership Name:**")
+                st.write(get_ownership_name(selected_res))
+            with col4:
+                st.write("**Address:**")
+                st.write(get_address_from_index(selected_res))
+
+            # Extract and download button (single button, inside the if)
+            if st.button("Extract Selected PDF", key="extract_pdf"):
+                pdf_bytes = extract_pdf(pdf_path, selected_res)
+                if isinstance(pdf_bytes, tuple):  # Error case
+                    st.error(pdf_bytes[1])
+                else:
+                    pdf_data = pdf_bytes.getvalue()
+                    st.download_button(
+                        label="Download Extracted PDF",
+                        data=pdf_data,
+                        file_name=f"{county}_{type_var}_{selected_res['acc']}.pdf",
+                        mime="application/pdf"
+                    )
+
+                    # Inline PDF Viewer
+                    st.markdown("### Full PDF Preview:")
+                    try:
+                        pdf_viewer(pdf_data, height=2000)
+                    except Exception as e:
+                        st.warning(f"Could not render PDF viewer: {e}. Falling back to first-page image preview.")
+                        # Fallback image code
+                        doc = fitz.open(stream=pdf_data, filetype="pdf")
+                        if len(doc) > 0:
+                            page = doc.load_page(0)
+                            mat = fitz.Matrix(2, 2)
+                            pix = page.get_pixmap(matrix=mat)
+                            img_bytes = pix.tobytes("png")
+                            st.image(img_bytes, caption=f"Preview of {selected_res['acc']} - Page 1", width='stretch')
+                        doc.close()
+
+    else:
+        st.warning("Please index all document types in Settings before searching.")
+
+with tab2:
+    st.subheader("Settings: Upload and Index Documents")
+    with st.expander("Upload or Manage Files", expanded=True):
+        col1, col2, col3 = st.columns(3)
+        for i, doc_type in enumerate(DOC_TYPES):
+            col = [col1, col2, col3][i]
+            with col:
+                st.write(f"**{doc_type}**")
+                
+                # PDF Status and Replace
+                pdf_status = get_file_status(county_dir, doc_type, "pdf")
+                st.write(f"**PDF:** {pdf_status}")
+                uploaded_pdf = st.file_uploader(f"Replace {doc_type} PDF", type=['pdf'], key=f"{doc_type.replace(' ', '_').lower()}_pdf_replace_{county}")
+                if uploaded_pdf is not None:
+                    pdf_path = get_doc_path(county_dir, doc_type, "pdf")
+                    with open(pdf_path, "wb") as f:
+                        f.write(uploaded_pdf.getbuffer())
+                    st.success(f"{doc_type} PDF replaced!")
+                    st.session_state.docs_indexed[doc_type] = False  # Mark as needs re-index
+                    st.rerun()
+                
+                # Excel Status and Replace
+                excel_status = get_file_status(county_dir, doc_type, "xlsx")
+                st.write(f"**Excel:** {excel_status}")
+                uploaded_excel = st.file_uploader(f"Replace {doc_type} Excel", type=['xlsx', 'xls'], key=f"{doc_type.replace(' ', '_').lower()}_excel_replace_{county}")
+                if uploaded_excel is not None:
+                    excel_path = get_doc_path(county_dir, doc_type, "xlsx")
+                    with open(excel_path, "wb") as f:
+                        f.write(uploaded_excel.getbuffer())
+                    st.success(f"{doc_type} Excel replaced!")
+                    st.session_state.docs_indexed[doc_type] = False  # Mark as needs re-index
+                    st.rerun()
+                
+                # Index/Re-Index Button
+                index_text = "Re-Index" if st.session_state.docs_indexed.get(doc_type, False) else "Index"
+                if st.button(f"{index_text} {doc_type}", key=f"index_{doc_type}_{county}"):
+                    pdf_path = get_doc_path(county_dir, doc_type, "pdf")
+                    excel_path = get_doc_path(county_dir, doc_type, "xlsx")
+                    if os.path.exists(pdf_path):
+                        with st.spinner(f"Indexing {doc_type}..."):
+                            index_data = index_pdf(pdf_path, excel_path if os.path.exists(excel_path) else None, doc_type)
+                            save_index(county_dir, doc_type, index_data)
+                            st.session_state.docs_indexed[doc_type] = True
+                            st.success(f"{doc_type} indexed successfully!")
+                            st.rerun()
                     else:
-                        st.success(f"Found {len(results)} match(es).")
-                        st.session_state.search_results = results
-                        st.session_state.selected_res = None  # Reset selection
-                st.rerun()
+                        st.warning(f"Please upload {doc_type} PDF first.")
 
-            # Display results as radio list if available
-            if st.session_state.search_results:
-                results = st.session_state.search_results
-                display_options = [f"{r['acc']} - {r['ownership_name'][:30]}{'...' if len(r['ownership_name']) > 30 else ''} ({r['address'][:20]}{'...' if len(r['address']) > 20 else ''})" for r in results]
-                selected_idx = st.radio("Select a match to extract:", range(len(display_options)), format_func=lambda idx: display_options[idx], key="match_radio")
-                selected_res = results[selected_idx]
-                st.session_state.selected_res = selected_res
+    # Check indexing status
+    st.subheader("Indexing Status")
+    for doc_type in DOC_TYPES:
+        index_file = get_doc_path(county_dir, doc_type, "json")
+        status = "✅ Indexed" if os.path.exists(index_file) else "❌ Not Indexed"
+        st.write(f"{doc_type}: {status}")
 
-                # Show details of selected
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.write("**Account:**")
-                    st.write(f"{selected_res['acc']} (Local: {selected_res['local_number']})")
-                with col2:
-                    st.write("**Business Name:**")
-                    st.write(get_business_name(selected_res))
-                with col3:
-                    st.write("**Ownership Name:**")
-                    st.write(get_ownership_name(selected_res))
-                with col4:
-                    st.write("**Address:**")
-                    st.write(get_address_from_index(selected_res))
-
-                # Extract and download button (single button, inside the if)
-                if st.button("Extract Selected PDF", key="extract_pdf"):
-                    pdf_bytes = extract_pdf(pdf_path, selected_res)
-                    if isinstance(pdf_bytes, tuple):  # Error case
-                        st.error(pdf_bytes[1])
-                    else:
-                        pdf_data = pdf_bytes.getvalue()
-                        st.download_button(
-                            label="Download Extracted PDF",
-                            data=pdf_data,
-                            file_name=f"{county}_{type_var}_{selected_res['acc']}.pdf",
-                            mime="application/pdf"
-                        )
-
-                        # Inline PDF Viewer
-                        st.markdown("### Full PDF Preview:")
-                        try:
-                            pdf_viewer(pdf_data, height=800)
-                        except Exception as e:
-                            st.warning(f"Could not render PDF viewer: {e}. Falling back to first-page image preview.")
-                            # Fallback image code
-                            doc = fitz.open(stream=pdf_data, filetype="pdf")
-                            if len(doc) > 0:
-                                page = doc.load_page(0)
-                                mat = fitz.Matrix(2, 2)
-                                pix = page.get_pixmap(matrix=mat)
-                                img_bytes = pix.tobytes("png")
-                                st.image(img_bytes, caption=f"Preview of {selected_res['acc']} - Page 1", width='stretch')
-                            doc.close()
-
-        else:
-            st.warning("Please index all document types in Settings before searching.")
-
-    with tab2:
-        st.subheader("Settings: Upload and Index Documents")
-        with st.expander("Upload or Manage Files", expanded=True):
-            col1, col2, col3 = st.columns(3)
-            for i, doc_type in enumerate(DOC_TYPES):
-                col = [col1, col2, col3][i]
-                with col:
-                    st.write(f"**{doc_type}**")
-                    
-                    # PDF Status and Replace
-                    pdf_status = get_file_status(county_dir, doc_type, "pdf")
-                    st.write(f"**PDF:** {pdf_status}")
-                    uploaded_pdf = st.file_uploader(f"Replace {doc_type} PDF", type=['pdf'], key=f"{doc_type.replace(' ', '_').lower()}_pdf_replace_{county}")
-                    if uploaded_pdf is not None:
-                        pdf_path = get_doc_path(county_dir, doc_type, "pdf")
-                        with open(pdf_path, "wb") as f:
-                            f.write(uploaded_pdf.getbuffer())
-                        st.success(f"{doc_type} PDF replaced!")
-                        st.session_state.docs_indexed[doc_type] = False  # Mark as needs re-index
-                        st.rerun()
-                    
-                    # Excel Status and Replace
-                    excel_status = get_file_status(county_dir, doc_type, "xlsx")
-                    st.write(f"**Excel:** {excel_status}")
-                    uploaded_excel = st.file_uploader(f"Replace {doc_type} Excel", type=['xlsx', 'xls'], key=f"{doc_type.replace(' ', '_').lower()}_excel_replace_{county}")
-                    if uploaded_excel is not None:
-                        excel_path = get_doc_path(county_dir, doc_type, "xlsx")
-                        with open(excel_path, "wb") as f:
-                            f.write(uploaded_excel.getbuffer())
-                        st.success(f"{doc_type} Excel replaced!")
-                        st.session_state.docs_indexed[doc_type] = False  # Mark as needs re-index
-                        st.rerun()
-                    
-                    # Index/Re-Index Button
-                    index_text = "Re-Index" if st.session_state.docs_indexed.get(doc_type, False) else "Index"
-                    if st.button(f"{index_text} {doc_type}", key=f"index_{doc_type}_{county}"):
-                        pdf_path = get_doc_path(county_dir, doc_type, "pdf")
-                        excel_path = get_doc_path(county_dir, doc_type, "xlsx")
-                        if os.path.exists(pdf_path):
-                            with st.spinner(f"Indexing {doc_type}..."):
-                                index_data = index_pdf(pdf_path, excel_path if os.path.exists(excel_path) else None, doc_type)
-                                save_index(county_dir, doc_type, index_data)
-                                st.session_state.docs_indexed[doc_type] = True
-                                st.success(f"{doc_type} indexed successfully!")
-                                st.rerun()
-                        else:
-                            st.warning(f"Please upload {doc_type} PDF first.")
-
-        # Check indexing status
-        st.subheader("Indexing Status")
-        for doc_type in DOC_TYPES:
-            index_file = get_doc_path(county_dir, doc_type, "json")
-            status = "✅ Indexed" if os.path.exists(index_file) else "❌ Not Indexed"
-            st.write(f"{doc_type}: {status}")
-
-    # Sidebar Instructions (only if logged in)
-    with st.sidebar:
-        st.header("Instructions")
-        st.markdown("""
-        - Go to Settings tab to upload the 3 PDFs and 3 Excel files for your county.
-        - Click "Index" for each document type in Settings.
-        - Back to Search tab: Enter query and hit Enter or click Search to query and select from matches to download extracted PDFs.
-        - Files are stored server-side per county for reuse.
-        """)
-        st.markdown("**Note:** Click Logout to start a new session.")
+# Sidebar Instructions
+with st.sidebar:
+    st.header("Instructions")
+    st.markdown("""
+    - Go to Settings tab to upload the 3 PDFs and 3 Excel files for your county.
+    - Click "Index" for each document type in Settings.
+    - Back to Search tab: Enter query and hit Enter or click Search to query and select from matches to download extracted PDFs.
+    - Files are stored server-side per county for reuse.
+    """)
+    st.markdown("**Note:** Click Logout to start a new session.")
