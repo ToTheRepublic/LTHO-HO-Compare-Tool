@@ -3,14 +3,7 @@ import pandas as pd
 import os
 import re
 import io
-import fitz  # PyMuPDF
-import json
-import time
 from datetime import datetime
-import base64
-import urllib.parse
-from streamlit_pdf_viewer import pdf_viewer
-import streamlit.components.v1 as components
 
 # Wyoming counties list
 WY_COUNTIES = [
@@ -19,259 +12,143 @@ WY_COUNTIES = [
     "Sheridan", "Sublette", "Sweetwater", "Teton", "Uinta", "Washakie", "Weston"
 ]
 
-# Document types
-DOC_TYPES = ["Notice of Value", "Declaration", "Tax Notice"]
+# Your existing functions (unchanged)
+def parse_filer_name(full_name):
+    full_name = full_name.strip()
+    if not full_name:
+        return ""
+    parts = full_name.split()
+    if len(parts) == 0:
+        return ""
+    last = parts[0]
+    first = ' '.join(parts[1:]) if len(parts) > 1 else ""
+    return f"{last}, {first}"
 
-# Base directory for county data
-BASE_DIR = "county_docs"
-os.makedirs(BASE_DIR, exist_ok=True)
+def find_account_col(df):
+    account_pattern = re.compile(r'^[MR]\d{7}$')
+    for col in df.columns:
+        if df[col].astype(str).str.match(account_pattern, na=False).any():
+            return col
+    return None
 
-def get_file_status(county_dir, doc_type, extension):
-    file_path = get_doc_path(county_dir, doc_type, extension)
-    if os.path.exists(file_path):
-        size_mb = os.path.getsize(file_path) / (1024 * 1024)  # MB
-        return f"✅ Exists ({size_mb:.1f} MB): {os.path.basename(file_path)}"
-    return f"❌ Missing: {doc_type}.{extension}"
+def find_name_col(df):
+    for col in df.columns:
+        if re.search(r'name|owner', col, re.I):
+            return col
+    return None
 
-def get_county_path(county):
-    county_dir = os.path.join(BASE_DIR, county.replace(" ", "_"))
-    os.makedirs(county_dir, exist_ok=True)
-    return county_dir
+def find_phone_col(df):
+    for col in df.columns:
+        if re.search(r'phone', col, re.I):
+            return col
+    return None
 
-def get_doc_path(county_dir, doc_type, extension):
-    return os.path.join(county_dir, f"{doc_type.replace(' ', '_').lower()}.{extension}")
+def get_address(row, original_df):
+    parts = []
+    predir = str(row.get('Predirection', pd.NA)).strip() if pd.notna(row.get('Predirection', pd.NA)) else ""
+    street_no = str(row.get('Street Number', pd.NA)).strip() if pd.notna(row.get('Street Number', pd.NA)) else ""
+    street_name = str(row.get('Street Name', pd.NA)).strip() if pd.notna(row.get('Street Name', pd.NA)) else ""
+    street_type = str(row.get('Street Type', pd.NA)).strip() if pd.notna(row.get('Street Type', pd.NA)) else ""
+    if predir: parts.append(predir)
+    if street_no: parts.append(street_no)
+    if street_name: parts.append(street_name)
+    if street_type: parts.append(street_type)
+    return ' '.join(parts)
 
-def extract_nov_info(text):
-    lines = [line.strip() for line in text.split('\n') if line.strip()]
-    account = ""
-    local_number = ""
-
-    normalized_lines = [re.sub(r'\s+', ' ', line).strip() for line in lines]
-
-    account_pattern = re.compile(r'[RMPO]000\d{4,5}', re.I)
-    account_index = -1
-    for i, line in enumerate(normalized_lines):
-        match = account_pattern.search(line)
-        if match:
-            account = match.group().upper()
-            account_index = i
-            break
-
-    if account_index != -1 and account_index + 1 < len(normalized_lines):
-        local_number_candidate = normalized_lines[account_index + 1].strip()
-        if re.match(r'^\d{4,6}$', local_number_candidate):
-            local_number = local_number_candidate.lstrip('0').zfill(4)
-
-    return account, local_number
-
-def extract_declaration_info(text):
-    lines = [line.strip() for line in text.split('\n') if line.strip()]
-    account = ""
-    local_number = ""
-
-    acc_pattern = re.compile(r'[RMPO]000\d{4,5}', re.I)
-    for line in lines:
-        acc_match = acc_pattern.search(line)
-        if acc_match:
-            account = acc_match.group().upper()
-            break
-
-    for i, line in enumerate(lines):
-        if "January 1, 2025" in line:
-            if i + 1 < len(lines) and re.match(r'^\d{4}$', lines[i + 1]):
-                local_number = lines[i + 1]
-                break
-
-    return account, local_number
-
-def extract_tax_notice_info(text):
-    lines = [line.strip() for line in text.split('\n') if line.strip()]
-    account = ""
-    local_number = ""
-
-    for line in lines:
-        if "LOCAL/REALWARE ID #" in line:
-            id_match = re.search(r'LOCAL/REALWARE ID #\s*(\d+)/([RMPO]000\d{4,5})', line, re.I)
-            if id_match:
-                local_number = id_match.group(1).lstrip('0').zfill(4)
-                account = id_match.group(2).upper()
-            break
-
-    return account, local_number
-
-def extract_info_from_text(text, search_type):
-    if search_type == "Notice of Value":
-        return extract_nov_info(text)
-    elif search_type == "Declaration":
-        return extract_declaration_info(text)
-    elif search_type == "Tax Notice":
-        return extract_tax_notice_info(text)
-    return "", ""
-
-@st.cache_data
-def index_pdf(pdf_path, excel_path, search_type):
-    index_data = {}
-    first_page = {}
-    debug_accounts = ["R0007425", "P0007419"]
-
-    excel_df = None
-    if pd is not None and excel_path and os.path.isfile(excel_path):
-        try:
-            excel_df = pd.read_excel(excel_path, engine='openpyxl')
-            required_columns = ['ACCOUNTNO', 'NAME1', 'BUSINESSNAME', 'PREDIRECTION', 'STREETNO', 'POSTDIRECTION', 'STREETNAME', 'STREETTYPE']
-            if all(col in excel_df.columns for col in required_columns):
-                excel_df.set_index('ACCOUNTNO', inplace=True)
-            else:
-                excel_df = None
-        except:
-            excel_df = None
-
+def compare_excels(df1_bytes, df2_path):
     try:
-        doc = fitz.open(pdf_path)
-        total_pages = len(doc)
-        for page_num in range(total_pages):
-            text = doc[page_num].get_text()
-            if not text:
-                continue
-            account, local_number = extract_info_from_text(text, search_type)
-            
-            if account in debug_accounts:
-                st.write(f"Debug for {account} on page {page_num + 1}")
+        df1_orig = pd.read_excel(io.BytesIO(df1_bytes))
+        df2_orig = pd.read_excel(df2_path)
 
-            if account:
-                ownership_name = ""
-                property_address = ""
-                business_name = ""
-                if excel_df is not None and account in excel_df.index:
-                    row = excel_df.loc[account]
-                    ownership_name = str(row.get('NAME1', '')) if pd.notna(row.get('NAME1')) else ""
-                    business_name = str(row.get('BUSINESSNAME', '')) if pd.notna(row.get('BUSINESSNAME')) else ""
-                    address_parts = [
-                        str(row.get('PREDIRECTION', '')) if pd.notna(row.get('PREDIRECTION')) else "",
-                        str(row.get('STREETNO', '')) if pd.notna(row.get('STREETNO')) else "",
-                        str(row.get('POSTDIRECTION', '')) if pd.notna(row.get('POSTDIRECTION')) else "",
-                        str(row.get('STREETNAME', '')) if pd.notna(row.get('STREETNAME')) else "",
-                        str(row.get('STREETTYPE', '')) if pd.notna(row.get('STREETTYPE')) else ""
-                    ]
-                    property_address = ' '.join(part for part in address_parts if part)
-                    excel_local_number = str(row.get('Local Number', '')) if pd.notna(row.get('Local Number')) else ""
-                    if excel_local_number and re.match(r'^\d{4,6}$', excel_local_number):
-                        local_number = excel_local_number.lstrip('0').zfill(4)
+        if df1_orig.empty or df2_orig.empty:
+            return None, "One or both files are empty."
 
-                if account not in index_data:
-                    index_data[account] = {
-                        "local_number": local_number,
-                        "business_name": business_name,
-                        "address": property_address,
-                        "ownership_name": ownership_name,
-                        "pages": [page_num + 1]
-                    }
-                    first_page[account] = page_num + 1
-                else:
-                    index_data[account]["pages"].append(page_num + 1)
-                    if page_num + 1 == first_page[account]:
-                        if not index_data[account]["business_name"] and business_name:
-                            index_data[account]["business_name"] = business_name
-                        if not index_data[account]["address"] and property_address:
-                            index_data[account]["address"] = property_address
-                        if not index_data[account]["ownership_name"] and ownership_name:
-                            index_data[account]["ownership_name"] = ownership_name
-        doc.close()
+        key_col1 = find_account_col(df1_orig)
+        key_col2 = find_account_col(df2_orig)
+        if not key_col1 or not key_col2:
+            return None, "Could not identify account number column (M/R + 7 digits) in one or both files."
+
+        name_col1 = find_name_col(df1_orig)
+        phone_col1 = find_phone_col(df1_orig)
+        filer_address_col1 = next((col for col in df1_orig.columns if 'Filer Address' in col), None)
+
+        if not name_col1:
+            st.warning("Name column not found. Will skip name comparison.")
+        if not phone_col1:
+            st.warning("Phone column not found. Will skip phone comparison.")
+        if not filer_address_col1:
+            st.warning("Filer Address column not found. Will skip filer address.")
+
+        account_pattern = re.compile(r'^[MR]\d{7}$')
+        df1 = df1_orig[df1_orig[key_col1].astype(str).str.match(account_pattern, na=False)].copy()
+        df2 = df2_orig[df2_orig[key_col2].astype(str).str.match(account_pattern, na=False)].copy()
+
+        if df1.empty or df2.empty:
+            return None, "No valid account numbers found in one or both files after filtering."
+
+        df1.set_index(key_col1, inplace=True)
+        df2.set_index(key_col2, inplace=True)
+        common = df1[df1.index.isin(df2.index)]
+
+        common_display = []
+        for name, group in common.groupby(level=0):
+            count = len(group)
+            if count > 1:
+                note_row = {
+                    'Account Number': f"*** The below account has {count} entries ***",
+                    'Name': '', 'Address': '', 'Filer Name': '', 'Filer Address': '', 'Filer Phone': ''
+                }
+                common_display.append(note_row)
+            for _, sub_row in group.iterrows():
+                name_f1 = sub_row.get(name_col1, pd.NA) if name_col1 else pd.NA
+                phone_f1 = sub_row.get(phone_col1, pd.NA) if phone_col1 else pd.NA
+                addr_f1 = get_address(sub_row, df1_orig)
+                filer_addr_f1 = sub_row.get(filer_address_col1, pd.NA) if filer_address_col1 else pd.NA
+
+                display_row = {
+                    'Account Number': name,
+                    'Name': str(name_f1) if pd.notna(name_f1) else '',
+                    'Address': addr_f1,
+                    'Filer Name': parse_filer_name(str(name_f1) if pd.notna(name_f1) else ''),
+                    'Filer Address': str(filer_addr_f1) if pd.notna(filer_addr_f1) else '',
+                    'Filer Phone': str(phone_f1) if pd.notna(phone_f1) else ''
+                }
+                common_display.append(display_row)
+
+        common_all = pd.DataFrame(common_display)
+        return common_all, None
     except Exception as e:
-        st.error(f"Error indexing: {str(e)}")
-    return index_data
+        return None, f"Failed to compare files: {str(e)}"
 
-def save_index(county_dir, search_type, index_data):
-    index_file = get_doc_path(county_dir, search_type, "json")
-    with open(index_file, 'w', encoding='utf-8') as f:
-        json.dump(index_data, f, indent=4)
+def generate_txt_output(common_all):
+    if common_all is None or common_all.empty:
+        return "No matching accounts found."
+    
+    output = io.StringIO()
+    output.write("ALL MATCHING ACCOUNTS WITH DATA FROM HO APPLICANT FILE\n\n")
+    header_fmt = "{:<15} {:<40} {:<30} {:<40} {:<30} {:<20}\n"
+    output.write(header_fmt.format('Account Number', 'Name', 'Address', 'Filer Name', 'Filer Address', 'Filer Phone #'))
+    sep_fmt = "{:<15} {:<40} {:<30} {:<40} {:<30} {:<20}\n"
+    output.write(sep_fmt.format('-'*15, '-'*40, '-'*30, '-'*40, '-'*30, '-'*20))
+    data_fmt = "{:<15} {:<40} {:<30} {:<40} {:<30} {:<20}\n"
+    for _, row in common_all.iterrows():
+        acc = str(row['Account Number']) if pd.notna(row['Account Number']) else ''
+        name = str(row['Name']) if pd.notna(row['Name']) else ''
+        addr = str(row['Address']) if pd.notna(row['Address']) else ''
+        filer_name = str(row['Filer Name']) if pd.notna(row['Filer Name']) else ''
+        filer_addr = str(row['Filer Address']) if pd.notna(row['Filer Address']) else ''
+        filer_phone = str(row['Filer Phone']) if pd.notna(row['Filer Phone']) else ''
+        output.write(data_fmt.format(acc, name, addr, filer_name, filer_addr, filer_phone))
+    return output.getvalue()
 
-def load_index(county_dir, search_type):
-    index_file = get_doc_path(county_dir, search_type, "json")
-    if os.path.exists(index_file):
-        with open(index_file, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return {}
+def get_master_path(county):
+    return f"master_lists/{county}/master.xlsx"
 
-def search_matches(index_data, query, search_type):
-    query_lower = query.lower().strip()
-    results = []
+# Streamlit App
+st.set_page_config(page_title="WY County Excel Comparison Tool", layout="wide")
+st.title("Wyoming County Excel Comparison Tool")
 
-    # Exact account match
-    if re.match(r'^[RMPO]000\d{4,5}$', query, re.I):
-        q_upper = query.upper()
-        if q_upper in index_data:
-            data = index_data[q_upper]
-            results.append({
-                'acc': q_upper,
-                'local_number': data.get("local_number", "").lstrip('0'),
-                'ownership_name': data.get("ownership_name", ""),
-                'address': data.get("address", ""),
-                'business_name': data.get("business_name", ""),
-                'pages': data['pages']
-            })
-    # Exact local number match
-    elif re.match(r'^\d{4,}$', query):
-        normalized_query = query.lstrip('0')
-        for acc, data in index_data.items():
-            local_number = data.get("local_number", "").lstrip('0')
-            if normalized_query == local_number:
-                results.append({
-                    'acc': acc,
-                    'local_number': local_number,
-                    'ownership_name': data.get("ownership_name", ""),
-                    'address': data.get("address", ""),
-                    'business_name': data.get("business_name", ""),
-                    'pages': data['pages']
-                })
-    # Partial name/address match
-    else:
-        for acc, data in index_data.items():
-            ownership_name = data.get("ownership_name", "").lower()
-            business_name = data.get("business_name", "").lower()
-            address = data.get("address", "").lower()
-            if (query_lower in ownership_name or 
-                query_lower in business_name or 
-                query_lower in address):
-                results.append({
-                    'acc': acc,
-                    'local_number': data.get("local_number", "").lstrip('0'),
-                    'ownership_name': data.get("ownership_name", ""),
-                    'address': data.get("address", ""),
-                    'business_name': data.get("business_name", ""),
-                    'pages': data['pages']
-                })
-    return results
-
-def get_business_name(res):
-    return res.get('business_name', '') or 'N/A'
-
-def get_ownership_name(res):
-    return res.get('ownership_name', '') or 'N/A'
-
-def get_address_from_index(res):
-    return res.get('address', '') or 'N/A'
-
-def extract_pdf(pdf_path, selected_res):
-    try:
-        doc = fitz.open(pdf_path)
-        pages = selected_res['pages']
-        output = fitz.open()
-        for page_num in sorted(pages):
-            page = doc[page_num - 1]  # 1-based to 0-based
-            output.insert_pdf(doc, from_page=page.number, to_page=page.number)
-        doc.close()
-        output_bytes = io.BytesIO()
-        output.save(output_bytes, garbage=4, deflate=True, clean=True)
-        output.close()
-        return output_bytes
-    except Exception as e:
-        return (None, f"Error extracting PDF: {str(e)}")
-
-# Page config
-st.set_page_config(page_title="WY County Document Search", layout="wide")
-
-# Back to Home button
+# Back to Home button (styled, same tab)
 st.markdown(
     """
     <a href="https://assessortools.com" target="_self" rel="noopener noreferrer" style="
@@ -296,200 +173,79 @@ st.markdown(
 # Initialize session state
 if 'county' not in st.session_state:
     st.session_state.county = None
-if 'docs_indexed' not in st.session_state:
-    st.session_state.docs_indexed = {}
-if 'search_results' not in st.session_state:
-    st.session_state.search_results = None
-if 'selected_res' not in st.session_state:
-    st.session_state.selected_res = None
 
-# Check for county from query params
-query_params = st.query_params
-if 'county' in query_params:
-    raw_county = query_params['county'][0]
-    # Normalize: strip spaces and title-case for consistency
-    county = raw_county.strip().title()
-    # Temporary debug (remove after testing)
-    st.write(f"**Debug: Raw param:** '{raw_county}' → **Normalized:** '{county}'")
-    if county not in WY_COUNTIES:
-        st.error(f"Invalid county '{county}' (not in list). Please log in from the home page.")
-        st.stop()
+# County selection (simple dropdown, persists in session)
+st.subheader("Select Your County")
+county = st.selectbox("Choose a county:", WY_COUNTIES, index=WY_COUNTIES.index(st.session_state.county) if st.session_state.county in WY_COUNTIES else 0)
+if county != st.session_state.county:
     st.session_state.county = county
-else:
-    st.warning("No county selected. Please log in from the home page.")
+    st.rerun()
+
+if not county:
+    st.warning("Please select a county to proceed.")
     st.stop()
 
-# Use county from session state
-county = st.session_state.county
-st.title(f"WY County Document Search - {county} County")
-county_dir = get_county_path(county)
+master_path = get_master_path(county)
+master_dir = os.path.dirname(master_path)
+os.makedirs(master_dir, exist_ok=True)  # Create folder if needed
 
-# Sidebar with county display and logout link
+# Master List Section
+st.subheader(f"LTHO Master List for {county} County")
+if os.path.exists(master_path):
+    st.success(f"✓ Master list loaded from server: {os.path.basename(master_path)}")
+    st.info("You can upload a new one below to overwrite.")
+    if st.button("Refresh Comparison (Reload Master)", type="secondary"):
+        st.rerun()
+else:
+    st.warning("No master list found for this county. Please upload one.")
+
+master_upload = st.file_uploader("Upload/Update Master List (Excel)", type=['xlsx', 'xls'], key="master_upload")
+if master_upload is not None and st.button("Save Master List to Server", type="primary"):
+    try:
+        with st.spinner("Saving master list..."):
+            df = pd.read_excel(master_upload)
+            df.to_excel(master_path, index=False, engine='openpyxl')
+        st.success(f"Master list saved for {county} County!")
+        st.rerun()
+    except Exception as e:
+        st.error(f"Failed to save: {str(e)}")
+
+if not os.path.exists(master_path):
+    st.stop()  # Can't proceed without master
+
+# Applicant List Section (ephemeral)
+st.subheader("HO Applicant List (Temporary - Session Only)")
+applicant_upload = st.file_uploader("Upload Applicant List (Excel)", type=['xlsx', 'xls'], key="applicant_upload")
+
+# Compare Button
+if st.button("Compare Lists", type="primary") and applicant_upload is not None:
+    with st.spinner("Comparing files..."):
+        common_all, error = compare_excels(applicant_upload.read(), master_path)
+        if error:
+            st.error(error)
+        else:
+            st.success("Comparison complete!")
+            st.dataframe(common_all, use_container_width=True)
+            
+            txt_content = generate_txt_output(common_all)
+            st.download_button(
+                label="Download Matches as .TXT",
+                data=txt_content,
+                file_name=f"{county}_LTHO_Matches.txt",
+                mime="text/plain"
+            )
+
+# Sidebar: Info/Reset
 with st.sidebar:
     st.write(f"**Current County:** {county}")
-    st.markdown(f"[Logout](https://assessortools.com)")
-
-# Auto-load indexed status from disk
-if county and county_dir:
-    for doc_type in DOC_TYPES:
-        index_file = get_doc_path(county_dir, doc_type, "json")
-        if doc_type not in st.session_state.docs_indexed:
-            st.session_state.docs_indexed[doc_type] = os.path.exists(index_file)
-
-# Refresh indexed status if needed
-if county and county_dir:
-    for doc_type in DOC_TYPES:
-        index_file = get_doc_path(county_dir, doc_type, "json")
-        st.session_state.docs_indexed[doc_type] = os.path.exists(index_file)
-
-# Tabs
-tab1, tab2 = st.tabs(["Search", "Settings"])
-
-with tab1:
-    st.subheader("Search Documents")
-    
-    if all(doc_type in st.session_state.docs_indexed for doc_type in DOC_TYPES):
-        with st.form("search_form"):
-            type_var = st.selectbox("Document Type:", DOC_TYPES, key="doc_type")
-            query = st.text_input("Search (Account/Local/Name/Address):", key="search_query", placeholder="e.g., R0001234 or 1234 or 'Smith' or 'Main St'")
-            submitted = st.form_submit_button("Search Matches")
-
-        # Define pdf_path here so it's always available (uses current type_var)
-        pdf_path = get_doc_path(county_dir, type_var, "pdf")
-        if not os.path.exists(pdf_path):
-            st.warning("PDF not found. Please upload in Settings.")
-
-        if submitted:
-            index_data = load_index(county_dir, type_var)
-            with st.spinner("Searching..."):
-                results = search_matches(index_data, query, type_var)
-                if not results:
-                    st.error("No matches found.")
-                    st.session_state.search_results = None
-                else:
-                    st.success(f"Found {len(results)} match(es).")
-                    st.session_state.search_results = results
-                    st.session_state.selected_res = None  # Reset selection
-            st.rerun()
-
-        # Display results as radio list if available
-        if st.session_state.search_results:
-            results = st.session_state.search_results
-            display_options = [f"{r['acc']} - {r['ownership_name'][:30]}{'...' if len(r['ownership_name']) > 30 else ''} ({r['address'][:20]}{'...' if len(r['address']) > 20 else ''})" for r in results]
-            selected_idx = st.radio("Select a match to extract:", range(len(display_options)), format_func=lambda idx: display_options[idx], key="match_radio")
-            selected_res = results[selected_idx]
-            st.session_state.selected_res = selected_res
-
-            # Show details of selected
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.write("**Account:**")
-                st.write(f"{selected_res['acc']} (Local: {selected_res['local_number']})")
-            with col2:
-                st.write("**Business Name:**")
-                st.write(get_business_name(selected_res))
-            with col3:
-                st.write("**Ownership Name:**")
-                st.write(get_ownership_name(selected_res))
-            with col4:
-                st.write("**Address:**")
-                st.write(get_address_from_index(selected_res))
-
-            # Extract and download button (single button, inside the if)
-            if st.button("Extract Selected PDF", key="extract_pdf"):
-                pdf_bytes = extract_pdf(pdf_path, selected_res)
-                if isinstance(pdf_bytes, tuple):  # Error case
-                    st.error(pdf_bytes[1])
-                else:
-                    pdf_data = pdf_bytes.getvalue()
-                    st.download_button(
-                        label="Download Extracted PDF",
-                        data=pdf_data,
-                        file_name=f"{county}_{type_var}_{selected_res['acc']}.pdf",
-                        mime="application/pdf"
-                    )
-
-                    # Inline PDF Viewer
-                    st.markdown("### Full PDF Preview:")
-                    try:
-                        pdf_viewer(pdf_data, height=800)
-                    except Exception as e:
-                        st.warning(f"Could not render PDF viewer: {e}. Falling back to first-page image preview.")
-                        # Fallback image code
-                        doc = fitz.open(stream=pdf_data, filetype="pdf")
-                        if len(doc) > 0:
-                            page = doc.load_page(0)
-                            mat = fitz.Matrix(2, 2)
-                            pix = page.get_pixmap(matrix=mat)
-                            img_bytes = pix.tobytes("png")
-                            st.image(img_bytes, caption=f"Preview of {selected_res['acc']} - Page 1", width='stretch')
-                        doc.close()
-
-    else:
-        st.warning("Please index all document types in Settings before searching.")
-
-with tab2:
-    st.subheader("Settings: Upload and Index Documents")
-    with st.expander("Upload or Manage Files", expanded=True):
-        col1, col2, col3 = st.columns(3)
-        for i, doc_type in enumerate(DOC_TYPES):
-            col = [col1, col2, col3][i]
-            with col:
-                st.write(f"**{doc_type}**")
-                
-                # PDF Status and Replace
-                pdf_status = get_file_status(county_dir, doc_type, "pdf")
-                st.write(f"**PDF:** {pdf_status}")
-                uploaded_pdf = st.file_uploader(f"Replace {doc_type} PDF", type=['pdf'], key=f"{doc_type.replace(' ', '_').lower()}_pdf_replace_{county}")
-                if uploaded_pdf is not None:
-                    pdf_path = get_doc_path(county_dir, doc_type, "pdf")
-                    with open(pdf_path, "wb") as f:
-                        f.write(uploaded_pdf.getbuffer())
-                    st.success(f"{doc_type} PDF replaced!")
-                    st.session_state.docs_indexed[doc_type] = False  # Mark as needs re-index
-                    st.rerun()
-                
-                # Excel Status and Replace
-                excel_status = get_file_status(county_dir, doc_type, "xlsx")
-                st.write(f"**Excel:** {excel_status}")
-                uploaded_excel = st.file_uploader(f"Replace {doc_type} Excel", type=['xlsx', 'xls'], key=f"{doc_type.replace(' ', '_').lower()}_excel_replace_{county}")
-                if uploaded_excel is not None:
-                    excel_path = get_doc_path(county_dir, doc_type, "xlsx")
-                    with open(excel_path, "wb") as f:
-                        f.write(uploaded_excel.getbuffer())
-                    st.success(f"{doc_type} Excel replaced!")
-                    st.session_state.docs_indexed[doc_type] = False  # Mark as needs re-index
-                    st.rerun()
-                
-                # Index/Re-Index Button
-                index_text = "Re-Index" if st.session_state.docs_indexed.get(doc_type, False) else "Index"
-                if st.button(f"{index_text} {doc_type}", key=f"index_{doc_type}_{county}"):
-                    pdf_path = get_doc_path(county_dir, doc_type, "pdf")
-                    excel_path = get_doc_path(county_dir, doc_type, "xlsx")
-                    if os.path.exists(pdf_path):
-                        with st.spinner(f"Indexing {doc_type}..."):
-                            index_data = index_pdf(pdf_path, excel_path if os.path.exists(excel_path) else None, doc_type)
-                            save_index(county_dir, doc_type, index_data)
-                            st.session_state.docs_indexed[doc_type] = True
-                            st.success(f"{doc_type} indexed successfully!")
-                            st.rerun()
-                    else:
-                        st.warning(f"Please upload {doc_type} PDF first.")
-
-    # Check indexing status
-    st.subheader("Indexing Status")
-    for doc_type in DOC_TYPES:
-        index_file = get_doc_path(county_dir, doc_type, "json")
-        status = "✅ Indexed" if os.path.exists(index_file) else "❌ Not Indexed"
-        st.write(f"{doc_type}: {status}")
-
-# Sidebar Instructions
-with st.sidebar:
     st.header("Instructions")
     st.markdown("""
-    - Go to Settings tab to upload the 3 PDFs and 3 Excel files for your county.
-    - Click "Index" for each document type in Settings.
-    - Back to Search tab: Enter query and hit Enter or click Search to query and select from matches to download extracted PDFs.
-    - Files are stored server-side per county for reuse.
+    - Select your county above.
+    - Upload/save your master list once (persists on server).
+    - Upload applicant list for each session (auto-deletes after).
+    - Results downloadable per run.
     """)
-    st.markdown("**Note:** Click Logout to start a new session.")
+    if st.button("Clear Session (Forget County)"):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
