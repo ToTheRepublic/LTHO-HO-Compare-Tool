@@ -408,6 +408,17 @@ if all(doc_type in st.session_state.docs_indexed for doc_type in DOC_TYPES):
                     mime="application/pdf"
                 )
 
+                # PDF options
+                pdf_base64 = base64.b64encode(pdf_data).decode()
+                st.markdown("""
+                    ### PDF Actions:
+                    <button onclick="window.open('data:application/pdf;base64,{pdf_base64}', '_blank')">Open in New Tab (Adobe-Compatible)</button>
+                    <button onclick="window.print()">Print Current Page (Download First for Full PDF)</button>
+                """.format(pdf_base64=pdf_base64), unsafe_allow_html=True)
+
+                # Embed preview for quick view (opens in browser PDF viewer, works with Adobe if set as default)
+                st.markdown(f'<iframe src="data:application/pdf;base64,{pdf_base64}" width="100%" height="600px" type="application/pdf"></iframe>', unsafe_allow_html=True)
+
                 # First page preview
                 st.markdown("### First Page Preview:")
                 try:
@@ -437,6 +448,17 @@ if all(doc_type in st.session_state.docs_indexed for doc_type in DOC_TYPES):
                         file_name=f"{county}_{type_var}_{selected_res['acc']}.pdf",
                         mime="application/pdf"
                     )
+
+                    # PDF options
+                    pdf_base64 = base64.b64encode(pdf_data).decode()
+                    st.markdown("""
+                        ### PDF Actions:
+                        <button onclick="window.open('data:application/pdf;base64,{pdf_base64}', '_blank')">Open in New Tab (Adobe-Compatible)</button>
+                        <button onclick="window.print()">Print Current Page (Download First for Full PDF)</button>
+                    """.format(pdf_base64=pdf_base64), unsafe_allow_html=True)
+
+                    # Embed preview for quick view (opens in browser PDF viewer, works with Adobe if set as default)
+                    st.markdown(f'<iframe src="data:application/pdf;base64,{pdf_base64}" width="100%" height="600px" type="application/pdf"></iframe>', unsafe_allow_html=True)
                     
                     st.markdown("### First Page Preview:")
                     try:
