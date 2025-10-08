@@ -271,35 +271,11 @@ def extract_pdf(pdf_path, selected_res):
 # Page config
 st.set_page_config(page_title="WY County Document Search", layout="wide")
 
-# Back to Home button
-st.markdown(
-    """
-    <a href="https://assessortools.com" target="_self" rel="noopener noreferrer" style="
-        text-decoration: none;
-        display: inline-block;
-        padding: 8px 16px;
-        background-color: #3B82F6;
-        color: white;
-        border-radius: 6px;
-        border: 1px solid #3B82F6;
-        font-weight: 500;
-        cursor: pointer;
-        margin-bottom: 20px;
-    " onmouseover="this.style.backgroundColor='#2563EB'; this.style.borderColor='#2563EB';" 
-       onmouseout="this.style.backgroundColor='#3B82F6'; this.style.borderColor='#3B82F6';">
-        ← Back to Home
-    </a>
-    """,
-    unsafe_allow_html=True
-)
-
 # Initialize session state
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'county' not in st.session_state:
     st.session_state.county = None
-if 'show_login' not in st.session_state:
-    st.session_state.show_login = False
 if 'docs_indexed' not in st.session_state:
     st.session_state.docs_indexed = {}
 if 'search_results' not in st.session_state:
@@ -340,28 +316,24 @@ if not st.session_state.logged_in:
         This tool allows you to upload, index, and search PDFs like Notices of Value, Declarations, and Tax Notices.
         """)
     with col2:
-        if st.button("Login", type="primary"):
-            st.session_state.show_login = True
-            st.rerun()
+        st.empty()  # Spacer to align
 
-    if st.session_state.show_login:
-        st.markdown("---")
-        st.subheader("Login Form")
-        with st.form("login_form", clear_on_submit=True):
-            county = st.selectbox("Select County:", WY_COUNTIES)
-            password = st.text_input("Password:", type="password")
-            col_btn, _ = st.columns([1, 3])
-            with col_btn:
-                submitted = st.form_submit_button("Login")
-            if submitted:
-                if password == "wyoming2025":  # Change this to a secure password
-                    st.session_state.county = county
-                    st.session_state.logged_in = True
-                    st.session_state.show_login = False
-                    st.success(f"Logged in as {county} County")
-                    st.rerun()
-                else:
-                    st.error("Invalid password. Please try again.")
+    st.markdown("---")
+    st.subheader("Login Form")
+    with st.form("login_form", clear_on_submit=True):
+        county = st.selectbox("Select County:", WY_COUNTIES)
+        password = st.text_input("Password:", type="password")
+        col_btn, _ = st.columns([1, 3])
+        with col_btn:
+            submitted = st.form_submit_button("Login")
+        if submitted:
+            if password == "wyoming2025":  # Change this to a secure password
+                st.session_state.county = county
+                st.session_state.logged_in = True
+                st.success(f"Logged in as {county} County")
+                st.rerun()
+            else:
+                st.error("Invalid password. Please try again.")
 else:
     # Logged in: Show county at top
     county = st.session_state.county
@@ -373,7 +345,7 @@ else:
     # Sidebar with county display and logout
     st.sidebar.write(f"**Current County:** {county}")
     if st.button("Logout", key="logout"):
-        for key in ['logged_in', 'county', 'docs_indexed', 'search_results', 'selected_res', 'show_login']:
+        for key in ['logged_in', 'county', 'docs_indexed', 'search_results', 'selected_res']:
             if key in st.session_state:
                 del st.session_state[key]
         st.rerun()
