@@ -372,91 +372,73 @@ with tab1:
                     st.session_state.selected_res = None  # Reset selection
             st.rerun()
 
-        # Display results as radio list if available
-        if st.session_state.search_results:
-            results = st.session_state.search_results
-            display_options = [f"{r['acc']} - {r['ownership_name'][:30]}{'...' if len(r['ownership_name']) > 30 else ''} ({r['address'][:20]}{'...' if len(r['address']) > 20 else ''})" for r in results]
-            selected_idx = st.radio("Select a match to extract:", range(len(display_options)), format_func=lambda idx: display_options[idx], key="match_radio")
-            selected_res = results[selected_idx]
-            st.session_state.selected_res = selected_res
+# Display results as radio list if available
+if st.session_state.search_results:
+    results = st.session_state.search_results
+    display_options = [f"{r['acc']} - {r['ownership_name'][:30]}{'...' if len(r['ownership_name']) > 30 else ''} ({r['address'][:20]}{'...' if len(r['address']) > 20 else ''})" for r in results]
+    selected_idx = st.radio("Select a match to extract:", range(len(display_options)), format_func=lambda idx: display_options[idx], key="match_radio")
+    selected_res = results[selected_idx]
+    st.session_state.selected_res = selected_res
 
-            # Show details of selected
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.write("**Account:**")
-                st.write(f"{selected_res['acc']} (Local: {selected_res['local_number']})")
-            with col2:
-                st.write("**Business Name:**")
-                st.write(get_business_name(selected_res))
-            with col3:
-                st.write("**Ownership Name:**")
-                st.write(get_ownership_name(selected_res))
-            with col4:
-                st.write("**Address:**")
-                st.write(get_address_from_index(selected_res))
+    # Show details of selected
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.write("**Account:**")
+        st.write(f"{selected_res['acc']} (Local: {selected_res['local_number']})")
+    with col2:
+        st.write("**Business Name:**")
+        st.write(get_business_name(selected_res))
+    with col3:
+        st.write("**Ownership Name:**")
+        st.write(get_ownership_name(selected_res))
+    with col4:
+        st.write("**Address:**")
+        st.write(get_address_from_index(selected_res))
 
-        # Extract and download button
-        if st.button("Extract Selected PDF", key="extract_button"):
-            pdf_bytes = extract_pdf(pdf_path, selected_res)
-            if isinstance(pdf_bytes, tuple):  # Error case
-                st.error(pdf_bytes[1])
-            else:
-                pdf_data = pdf_bytes.getvalue()
-                st.download_button(
-                    label="Download Extracted PDF",
-                    data=pdf_data,
-                    file_name=f"{county}_{type_var}_{selected_res['acc']}.pdf",
-                    mime="application/pdf"
-                )
-
-                # Inline PDF Viewer (new: full PDF preview)
-                st.markdown("### Full PDF Preview:")
-                try:
-                    pdf_viewer(pdf_data, height=800)  # Adjust height as needed; supports width/zoom options too
-                except Exception as e:
-                    st.warning(f"Could not render PDF viewer: {e}. Falling back to first-page image preview.")
-                    # Optional: Keep old image preview as fallback
-                    doc = fitz.open(stream=pdf_data, filetype="pdf")
-                    if len(doc) > 0:
-                        page = doc.load_page(0)
-                        mat = fitz.Matrix(2, 2)
-                        pix = page.get_pixmap(matrix=mat)
-                        img_bytes = pix.tobytes("png")
-                        st.image(img_bytes, caption=f"Preview of {selected_res['acc']} - Page 1", width='stretch')
-                    doc.close()
+    # Extract and download button (single button, inside the if)
+    if st.button("Extract Selected PDF", key="extract_pdf"):
+        pdf_bytes = extract_pdf(pdf_path, selected_res)
+        if isinstance(pdf_bytes, tuple):  # Error case
+            st.error(pdf_bytes[1])
         else:
-            # Extract and download button
-            if st.button("Extract Selected PDF", key="extract_button2"):
-                pdf_bytes = extract_pdf(pdf_path, selected_res)
-                if isinstance(pdf_bytes, tuple):  # Error case
-                    st.error(pdf_bytes[1])
-                else:
-                    pdf_data = pdf_bytes.getvalue()
-                    st.download_button(
-                        label="Download Extracted PDF",
-                        data=pdf_data,
-                        file_name=f"{county}_{type_var}_{selected_res['acc']}.pdf",
-                        mime="application/pdf"
+            pdf_data = pdf_bytes.getvalue()
+            st.download_button(
+                label="Download Extracted PDF",
+                data=pdf_data,
+                file_name=f"{county}_{type_var}_{selected_res['acc']}.pdf",
+                mime="application/pdf"
+            )
+
+            # Inline PDF Viewer
+            st.markdown("### Full PDF Preview:")
+            try:
+                pdf_viewer(pdf_data, height=800)
+            except Exception as e:
+                st.warning(f"Could not render PDF viewer: {e}. Falling back to first-page image preview.")
+                # Fallback image code
+                doc = fitz.open(stream=pdf_data, filetype="pdf")
+                if len(doc) > 0:
+                    page = doc.load_page(0)
+                    mat = fitz.Matrix(2, 2)
+                    pix = page.get_pixmap(matrix=mat)
+                    img_bytes = pix.tobytes("png")
+                    st.image(img_bytes, caption=f"Preview of {selected_res['acc']} - Page 1", width='stretch')
+                doc.close()
+
+            # Optional: Print helper button
+            st.markdown("### Actions:")
+            col_print, _ = st.columns([1, 3])  # Left for button, right empty
+            with col_print:
+                if st.button("🖨️ Print Preview", key="print_preview", type="secondary"):
+                    components.html(
+                        """
+                        <script>
+                        window.print();
+                        </script>
+                        """,
+                        height=0,
+                        width=0
                     )
-
-                    # Inline PDF Viewer (new: full PDF preview)
-                    st.markdown("### Full PDF Preview:")
-                    try:
-                        pdf_viewer(pdf_data, height=800)  # Adjust height as needed; supports width/zoom options too
-                    except Exception as e:
-                        st.warning(f"Could not render PDF viewer: {e}. Falling back to first-page image preview.")
-                        # Optional: Keep old image preview as fallback
-                        doc = fitz.open(stream=pdf_data, filetype="pdf")
-                        if len(doc) > 0:
-                            page = doc.load_page(0)
-                            mat = fitz.Matrix(2, 2)
-                            pix = page.get_pixmap(matrix=mat)
-                            img_bytes = pix.tobytes("png")
-                            st.image(img_bytes, caption=f"Preview of {selected_res['acc']} - Page 1", width='stretch')
-                        doc.close()
-
-    else:
-        st.warning("Please index all document types in Settings before searching.")
 
 with tab2:
     st.subheader("Settings: Upload and Index Documents")
