@@ -298,40 +298,42 @@ default_county = url_county if url_county in WY_COUNTIES else st.session_state.g
 
 with tab1:
     st.subheader("Search Documents")
-    if all(doc_type in st.session_state.docs_indexed for doc_type in DOC_TYPES):
-        # Refresh indexed status if needed (runs every time)
-        if st.session_state.county and 'county_dir' in locals():
-            for doc_type in DOC_TYPES:
-                index_file = get_doc_path(county_dir, doc_type, "json")
+    
+    # County selection moved outside form for early availability
+    st.subheader("Select Your County")
+    county = st.selectbox("Choose a county:", WY_COUNTIES, 
+                          index=WY_COUNTIES.index(default_county) if default_county else 0, 
+                          key="county_select")
+    if county != st.session_state.county:
+        st.session_state.county = county
+        # Update URL param for persistence
+        st.query_params["county"] = urllib.parse.quote(county)
+        st.session_state.docs_indexed = {}
+        st.session_state.search_results = None
+        st.session_state.selected_res = None
+        st.rerun()
+
+    if not county:
+        st.warning("Please select a county to proceed.")
+        st.stop()
+
+    county_dir = get_county_path(county)
+
+    # Auto-load indexed status from disk (now after county_dir defined)
+    if county and county_dir:
+        for doc_type in DOC_TYPES:
+            index_file = get_doc_path(county_dir, doc_type, "json")
+            if doc_type not in st.session_state.docs_indexed:
                 st.session_state.docs_indexed[doc_type] = os.path.exists(index_file)
 
+    # Refresh indexed status if needed (runs every time, now safe)
+    if county and county_dir:
+        for doc_type in DOC_TYPES:
+            index_file = get_doc_path(county_dir, doc_type, "json")
+            st.session_state.docs_indexed[doc_type] = os.path.exists(index_file)
+
+    if all(doc_type in st.session_state.docs_indexed for doc_type in DOC_TYPES):
         with st.form("search_form"):
-            st.subheader("Select Your County")
-            county = st.selectbox("Choose a county:", WY_COUNTIES, 
-                                  index=WY_COUNTIES.index(default_county) if default_county else 0, 
-                                  key="county_select")
-            if county != st.session_state.county:
-                st.session_state.county = county
-                # Update URL param for persistence
-                st.query_params["county"] = urllib.parse.quote(county)
-                st.session_state.docs_indexed = {}
-                st.session_state.search_results = None
-                st.session_state.selected_res = None
-                st.rerun()
-
-            if not county:
-                st.warning("Please select a county to proceed.")
-                st.stop()
-
-            county_dir = get_county_path(county)
-
-            # Auto-load indexed status from disk
-            if county and county_dir:
-                for doc_type in DOC_TYPES:
-                    index_file = get_doc_path(county_dir, doc_type, "json")
-                    if doc_type not in st.session_state.docs_indexed:
-                        st.session_state.docs_indexed[doc_type] = os.path.exists(index_file)
-
             type_var = st.selectbox("Document Type:", DOC_TYPES, key="doc_type")
             query = st.text_input("Search (Account/Local/Name/Address):", key="search_query", placeholder="e.g., R0001234 or 1234 or 'Smith' or 'Main St'")
             submitted = st.form_submit_button("Search Matches")
