@@ -8,6 +8,7 @@ import json
 import time
 from datetime import datetime
 import base64
+import urllib.parse
 
 # Wyoming counties list
 WY_COUNTIES = [
@@ -303,10 +304,20 @@ tab1, tab2 = st.tabs(["Search", "Settings"])
 
 with tab1:
     # County selection (move to top if needed, but keep in search for now)
-    st.subheader("Select Your County")
-    county = st.selectbox("Choose a county:", WY_COUNTIES, key="county_select")
+    # Get county from URL param if present
+    query_params = st.query_params
+    default_county = query_params.get("county", st.session_state.get("county", None))
+    if default_county:
+        # Decode URL-encoded spaces
+        default_county = urllib.parse.unquote(default_county)
+        if default_county in WY_COUNTIES:
+            st.session_state.county = default_county  # Pre-set session
+
+    county = st.selectbox("Choose a county:", WY_COUNTIES, index=WY_COUNTIES.index(default_county) if default_county else 0, key="county_select")
     if county != st.session_state.county:
         st.session_state.county = county
+        # Update URL param for persistence
+        st.query_params["county"] = urllib.parse.quote(county)
         st.session_state.docs_indexed = {}
         st.session_state.search_results = None
         st.session_state.selected_res = None
