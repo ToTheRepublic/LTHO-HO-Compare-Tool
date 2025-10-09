@@ -692,20 +692,36 @@ with tab2:
     with col2:
         st.write(f"**Accounts List:** {get_file_status(accounts_path)}")
 
-# Sidebar: Info/Reset
+# Sidebar: Info/Reset (with collapsible content and protected clear button)
 with st.sidebar:
-    st.header("Instructions")
-    st.markdown("""
-    - Select your county above (remembers your last choice for next time).
-    - Go to Settings tab to upload the Master List and Accounts List for your county (persist on server).
-    - Back to Compare tab: Upload applicant list, click Compare to query and view matches.
-    - Use Blacklist Management in Compare tab to add/remove accounts to ignore in future comparisons.
-    - Files are stored server-side per county for reuse.
-    """)
-    if st.button("Clear Session (Forget County)"):
-        save_user_pref('last_county', None)  # Clear user pref
-        st.query_params.clear()  # Clears URL params
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
-        st.session_state.last_county = None
-        # Will naturally refresh on next load
+    with st.expander("Instructions & Reset", expanded=False):
+        st.header("Instructions")
+        st.markdown("""
+        - Select your county above (remembers your last choice for next time).
+        - Go to Settings tab to upload the Master List and Accounts List for your county (persist on server).
+        - Back to Compare tab: Upload applicant list, click Compare to query and view matches.
+        - Use Blacklist Management in Compare tab to add/remove accounts to ignore in future comparisons.
+        - Files are stored server-side per county for reuse.
+        """)
+        
+        # Protected Clear Session button
+        st.subheader("Reset Session")
+        if 'clear_password' not in st.session_state:
+            st.session_state.clear_password = ""
+        
+        clear_password = st.text_input("Enter password to confirm:", type="password", key="clear_pwd_input")
+        st.session_state.clear_password = clear_password
+        
+        if st.button("Clear Session (Forget County)", disabled=not clear_password):
+            if clear_password == "admin":  # Change this to your desired password
+                save_user_pref('last_county', None)  # Clear user pref
+                st.query_params.clear()  # Clears URL params
+                for key in list(st.session_state.keys()):
+                    if key != 'clear_password':  # Preserve password input state
+                        del st.session_state[key]
+                st.session_state.last_county = None
+                st.success("Session cleared! Reloading...")
+                st.rerun()
+            else:
+                st.error("Incorrect password. Try again.")
+                st.session_state.clear_password = ""  # Clear input on error
