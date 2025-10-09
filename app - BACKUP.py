@@ -3,7 +3,6 @@ import pandas as pd
 import os
 import re
 import io
-import json
 from datetime import datetime
 
 # Wyoming counties list
@@ -56,20 +55,7 @@ def get_address(row, original_df):
     if street_type: parts.append(street_type)
     return ' '.join(parts)
 
-def load_blacklist(county):
-    blacklist_path = f"master_lists/{county}/blacklist.json"
-    if os.path.exists(blacklist_path):
-        with open(blacklist_path, 'r') as f:
-            return set(json.load(f))
-    return set()
-
-def save_blacklist(county, blacklist_set):
-    blacklist_path = f"master_lists/{county}/blacklist.json"
-    os.makedirs(os.path.dirname(blacklist_path), exist_ok=True)
-    with open(blacklist_path, 'w') as f:
-        json.dump(list(blacklist_set), f)
-
-def compare_excels(df1_bytes, df2_path, blacklist_set):
+def compare_excels(df1_bytes, df2_path):
     try:
         df1_orig = pd.read_excel(io.BytesIO(df1_bytes))
         df2_orig = pd.read_excel(df2_path)
@@ -103,8 +89,6 @@ def compare_excels(df1_bytes, df2_path, blacklist_set):
         df1.set_index(key_col1, inplace=True)
         df2.set_index(key_col2, inplace=True)
         common = df1[df1.index.isin(df2.index)]
-        # Filter out blacklisted accounts
-        common = common[~common.index.isin(blacklist_set)]
 
         common_display = []
         for name, group in common.groupby(level=0):
@@ -136,60 +120,6 @@ def compare_excels(df1_bytes, df2_path, blacklist_set):
     except Exception as e:
         return None, f"Failed to compare files: {str(e)}"
 
-def compare_addresses(df1_orig, accounts_path, blacklist_set):
-    try:
-        accounts_df = pd.read_excel(accounts_path)
-        if accounts_df.empty:
-            return None, "Accounts file is empty."
-
-        account_col = find_account_col(accounts_df)
-        if not account_col:
-            return None, "Could not identify account number column in accounts file."
-
-        # Filter for M and R accounts
-        mr_df = accounts_df[accounts_df[account_col].astype(str).str.match(r'^[MR]\d{7}$', na=False)].copy()
-        # Filter out blacklisted
-        mr_df = mr_df[~mr_df[account_col].isin(blacklist_set)]
-
-        if mr_df.empty:
-            return pd.DataFrame(), None
-
-        # Compute full address for mr_df
-        mr_df['FULL_ADDRESS'] = mr_df.apply(lambda row: get_address(row, None), axis=1)
-
-        filer_address_col1 = next((col for col in df1_orig.columns if 'Filer Address' in col), None)
-        if not filer_address_col1:
-            return None, "Filer Address column not found in applicant file."
-
-        potentials = []
-        for _, app_row in df1_orig.iterrows():
-            filer_addr = str(app_row.get(filer_address_col1, '')).lower().strip()
-            if not filer_addr:
-                continue
-            app_account = str(app_row.get(find_account_col(df1_orig), '')) if find_account_col(df1_orig) else 'N/A'
-
-            for _, mr_row in mr_df.iterrows():
-                mr_account = mr_row[account_col]
-                mr_addr = str(mr_row['FULL_ADDRESS']).lower().strip()
-                if mr_addr and (filer_addr in mr_addr or mr_addr in filer_addr):
-                    potentials.append({
-                        'MR Account': mr_account,
-                        'MR Address': mr_row['FULL_ADDRESS'],
-                        'Matched Applicant Account': app_account,
-                        'Applicant Filer Address': str(app_row[filer_address_col1])
-                    })
-
-        # Remove duplicates based on MR Account
-        unique_potentials = []
-        seen_mr = set()
-        for p in potentials:
-            if p['MR Account'] not in seen_mr:
-                unique_potentials.append(p)
-                seen_mr.add(p['MR Account'])
-        return pd.DataFrame(unique_potentials), None
-    except Exception as e:
-        return None, f"Failed to compare addresses: {str(e)}"
-
 def generate_txt_output(common_all):
     if common_all is None or common_all.empty:
         return "No matching accounts found."
@@ -213,9 +143,6 @@ def generate_txt_output(common_all):
 
 def get_master_path(county):
     return f"master_lists/{county}/master.xlsx"
-
-def get_accounts_path(county):
-    return f"master_lists/{county}/accounts.xlsx"
 
 # Streamlit App
 st.set_page_config(page_title="WY County Excel Comparison Tool", layout="wide")
@@ -248,10 +175,6 @@ if 'county' not in st.session_state:
     st.session_state.county = None
 if 'master_uploaded' not in st.session_state:
     st.session_state.master_uploaded = False
-if 'accounts_uploaded' not in st.session_state:
-    st.session_state.accounts_uploaded = False
-if 'blacklist' not in st.session_state:
-    st.session_state.blacklist = set()
 
 # Get logged-in county from auth
 logged_in_county = os.environ.get('REMOTE_USER', '').strip()
@@ -261,9 +184,9 @@ st.subheader("Select Your County")
 county = st.selectbox("Choose a county:", WY_COUNTIES, index=WY_COUNTIES.index(default_county) if default_county else 0, key="county_select")
 if county != st.session_state.county:
     st.session_state.county = county
-    st.session_state.master_uploaded = False
-    st.session_state.accounts_uploaded = False
-    st.session_state.blacklist = load_blacklist(county)
+    st.session_state.docs_indexed = {}  # Or equivalent for app.py
+    st.session_state.search_results = None
+    st.session_state.selected_res = None
     st.rerun()
 
 if not county:
@@ -271,13 +194,8 @@ if not county:
     st.stop()
 
 master_path = get_master_path(county)
-accounts_path = get_accounts_path(county)
-blacklist_path = f"master_lists/{county}/blacklist.json"
 master_dir = os.path.dirname(master_path)
 os.makedirs(master_dir, exist_ok=True)  # Create folder if needed
-
-# Load blacklist into session
-st.session_state.blacklist = load_blacklist(county)
 
 # Master List Section
 st.subheader(f"LTHO Master List for {county} County")
@@ -302,31 +220,8 @@ if master_upload is not None and st.button("Save Master List to Server", type="p
     except Exception as e:
         st.error(f"Failed to save: {str(e)}")
 
-# Accounts List Section
-st.subheader(f"Master Accounts List for {county} County")
-if os.path.exists(accounts_path):
-    st.success(f"✓ Accounts list loaded from server: {os.path.basename(accounts_path)}")
-    st.info("You can upload a new one below to overwrite.")
-    if st.button("Refresh Comparison (Reload Accounts)", type="secondary"):
-        st.session_state.accounts_uploaded = True  # Trigger reload
-        st.rerun()
-else:
-    st.warning("No accounts list found for this county. Please upload one.")
-
-accounts_upload = st.file_uploader("Upload/Update Master Accounts List (Excel)", type=['xlsx', 'xls'], key="accounts_upload")
-if accounts_upload is not None and st.button("Save Accounts List to Server", type="primary"):
-    try:
-        with st.spinner("Saving accounts list..."):
-            df = pd.read_excel(accounts_upload)
-            df.to_excel(accounts_path, index=False, engine='openpyxl')
-        st.success(f"Accounts list saved for {county} County!")
-        st.session_state.accounts_uploaded = True
-        st.rerun()
-    except Exception as e:
-        st.error(f"Failed to save: {str(e)}")
-
-if not os.path.exists(master_path) or not os.path.exists(accounts_path):
-    st.stop()  # Can't proceed without both
+if not os.path.exists(master_path):
+    st.stop()  # Can't proceed without master
 
 # Applicant List Section (ephemeral)
 st.subheader("HO Applicant List (Temporary - Session Only)")
@@ -335,7 +230,7 @@ applicant_upload = st.file_uploader("Upload Applicant List (Excel)", type=['xlsx
 # Compare Button
 if st.button("Compare Lists", type="primary") and applicant_upload is not None:
     with st.spinner("Comparing files..."):
-        common_all, error = compare_excels(applicant_upload.read(), master_path, st.session_state.blacklist)
+        common_all, error = compare_excels(applicant_upload.read(), master_path)
         if error:
             st.error(error)
         else:
@@ -350,54 +245,17 @@ if st.button("Compare Lists", type="primary") and applicant_upload is not None:
                 mime="text/plain"
             )
 
-            # Second comparison: Address matches for M/R
-            st.subheader("Potential M/R Accounts")
-            mr_potentials, mr_error = compare_addresses(pd.read_excel(io.BytesIO(applicant_upload.read())), accounts_path, st.session_state.blacklist)
-            if mr_error:
-                st.error(mr_error)
-            elif not mr_potentials.empty:
-                st.dataframe(mr_potentials, use_container_width=True)
-                
-                # Add to blacklist
-                potential_accounts = mr_potentials['MR Account'].tolist()
-                selected_to_blacklist = st.multiselect("Select M/R Accounts to Add to Blacklist:", potential_accounts, key="add_blacklist")
-                if st.button("Add Selected to Blacklist"):
-                    st.session_state.blacklist.update(selected_to_blacklist)
-                    save_blacklist(county, st.session_state.blacklist)
-                    st.success(f"Added {len(selected_to_blacklist)} accounts to blacklist.")
-                    st.rerun()
-            else:
-                st.info("No potential M/R address matches found.")
-
-# Blacklist Management
-with st.expander("Blacklist Management", expanded=False):
-    st.write(f"Current Blacklist ({len(st.session_state.blacklist)} accounts):")
-    blacklist_list = list(st.session_state.blacklist)
-    if blacklist_list:
-        st.write(blacklist_list)
-        selected_to_remove = st.multiselect("Select Accounts to Remove from Blacklist:", blacklist_list, key="remove_blacklist")
-        if st.button("Remove Selected from Blacklist"):
-            for acc in selected_to_remove:
-                st.session_state.blacklist.discard(acc)
-            save_blacklist(county, st.session_state.blacklist)
-            st.success(f"Removed {len(selected_to_remove)} accounts from blacklist.")
-            st.rerun()
-    else:
-        st.info("Blacklist is empty.")
-
 # Sidebar: Info/Reset
 with st.sidebar:
     st.header("Instructions")
     st.markdown("""
     - Select your county (hs).
-    - Upload/save your master list and accounts list once (persist on server).
+    - Upload/save your master list once (persists on server).
     - Upload applicant list for each session (auto-deletes after).
     - Results downloadable per run.
-    - Use Blacklist Management to add/remove accounts to ignore in future comparisons.
     """)
     if st.button("Clear Session (Forget County)"):
         for key in list(st.session_state.keys()):
-            if key != 'county':  # Keep county
-                del st.session_state[key]
-        st.session_state.blacklist = load_blacklist(county)
+            del st.session_state[key]
+
         st.rerun()
