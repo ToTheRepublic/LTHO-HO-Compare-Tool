@@ -5,6 +5,7 @@ import re
 import io
 import json
 from datetime import datetime
+from typing import Optional
 
 # Wyoming counties list
 WY_COUNTIES = [
@@ -291,6 +292,18 @@ def get_file_status(file_path):
         return f"✅ Exists ({size_mb:.1f} MB): {os.path.basename(file_path)}"
     return f"❌ Missing"
 
+# Helper to get county from query params (for persistence)
+def get_persistent_county() -> Optional[str]:
+    query_params = st.query_params
+    county_param = query_params.get("county", [None])[0]
+    if county_param and county_param in WY_COUNTIES:
+        return county_param
+    # Fallback to logged-in user
+    logged_in_county = os.environ.get('REMOTE_USER', '').strip()
+    if logged_in_county in WY_COUNTIES:
+        return logged_in_county
+    return None
+
 # Streamlit App
 st.set_page_config(page_title="WY County Excel Comparison Tool", layout="wide")
 st.title("Wyoming County Excel Comparison Tool")
@@ -324,9 +337,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Initialize session state
-if 'county' not in st.session_state:
-    st.session_state.county = None
+# Initialize session state (excluding county, which is now persistent via query params)
 if 'master_uploaded' not in st.session_state:
     st.session_state.master_uploaded = False
 if 'accounts_uploaded' not in st.session_state:
@@ -340,14 +351,18 @@ if 'mr_potentials' not in st.session_state:
 if 'applicant_bytes' not in st.session_state:
     st.session_state.applicant_bytes = None
 
-# Get logged-in county from auth
-logged_in_county = os.environ.get('REMOTE_USER', '').strip()
-default_county = logged_in_county if logged_in_county in WY_COUNTIES else None
+# Get persistent county
+persistent_county = get_persistent_county()
 
 st.subheader("Select Your County")
-county = st.selectbox("Choose a county:", WY_COUNTIES, index=WY_COUNTIES.index(default_county) if default_county else 0, key="county_select")
-if county != st.session_state.county:
-    st.session_state.county = county
+# Selectbox with persistent default
+default_index = WY_COUNTIES.index(persistent_county) if persistent_county else 0
+county = st.selectbox("Choose a county:", WY_COUNTIES, index=default_index, key="county_select")
+
+# Update query params if county changed
+if county != persistent_county:
+    st.query_params["county"] = [county]
+    # Reset session state on county change
     st.session_state.master_uploaded = False
     st.session_state.accounts_uploaded = False
     st.session_state.blacklist = load_blacklist(county)
@@ -645,15 +660,14 @@ with tab2:
 with st.sidebar:
     st.header("Instructions")
     st.markdown("""
-    - Select your county above.
+    - Select your county above (persists in URL for future visits).
     - Go to Settings tab to upload the Master List and Accounts List for your county (persist on server).
     - Back to Compare tab: Upload applicant list, click Compare to query and view matches.
     - Use Blacklist Management in Compare tab to add/remove accounts to ignore in future comparisons.
     - Files are stored server-side per county for reuse.
     """)
     if st.button("Clear Session (Forget County)"):
+        st.query_params.clear()  # Clears URL params, including county
         for key in list(st.session_state.keys()):
-            if key not in ['county']:
-                del st.session_state[key]
-        st.session_state.blacklist = load_blacklist(county)
+            del st.session_state[key]
         st.rerun()
