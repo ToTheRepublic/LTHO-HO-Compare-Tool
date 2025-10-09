@@ -234,20 +234,21 @@ def compare_addresses(df1_orig, accounts_path, blacklist_list):
                     'Address': mr_addr
                 })
 
-        # Find matches
+        # Find matches - unique per applicant address, using first applicant as representative
         potentials = []
         for norm_addr, app_list in applicant_addrs.items():
             if norm_addr in mr_addrs:
                 mr_list = mr_addrs[norm_addr]
-                for app in app_list:
-                    for mr in mr_list:
-                        if app['Account'] != mr['Account']:
-                            potentials.append({
-                                'Applicant Account': app['Account'],
-                                'Applicant Address': app['Address'],
-                                'Matching Account': mr['Account'],
-                                'Matching Address': mr['Address']
-                            })
+                # Use the first applicant as representative
+                rep_app = app_list[0]
+                for mr in mr_list:
+                    if rep_app['Account'] != mr['Account']:
+                        potentials.append({
+                            'Applicant Account': rep_app['Account'],
+                            'Applicant Address': rep_app['Address'],
+                            'Matching Account': mr['Account'],
+                            'Matching Address': mr['Address']
+                        })
 
         potentials_df = pd.DataFrame(potentials)
         if not potentials_df.empty:
@@ -521,39 +522,48 @@ if st.session_state.comparison_results is not None:
 with st.expander("Blacklist Management", expanded=False):
     st.write(f"Current Blacklist ({len(st.session_state.blacklist)} entries):")
     if st.session_state.blacklist:
-        blacklist_display = []
-        for d in st.session_state.blacklist:
+        st.write("Blacklisted entries:")
+        for i, d in enumerate(st.session_state.blacklist):
             if isinstance(d, dict):
                 addr = d.get('applicant_address', '')
                 display = f"{d['account']} - {addr}"
             else:
                 display = str(d)
-            blacklist_display.append(display)
-        st.write(blacklist_display)
-        selected_to_remove = st.multiselect("Select Entries to Remove from Blacklist:", blacklist_display, key="remove_blacklist")
+            st.write(f"- {display}")
+        
+        # Checkboxes for removal
+        selected_to_remove = []
+        for i, d in enumerate(st.session_state.blacklist):
+            if isinstance(d, dict):
+                addr = d.get('applicant_address', '')
+                display = f"{d['account']} - {addr}"
+            else:
+                display = str(d)
+            if st.checkbox(f"Remove {display}", key=f"remove_cb_{i}"):
+                selected_to_remove.append(i)
+        
         if st.button("Remove Selected from Blacklist"):
-            indices_to_remove = []
-            for i, display in enumerate(blacklist_display):
-                if display in selected_to_remove:
-                    indices_to_remove.append(i)
-            # Remove in reverse order to preserve indices
-            for i in sorted(indices_to_remove, reverse=True):
-                del st.session_state.blacklist[i]
-            save_blacklist(county, st.session_state.blacklist)
-            
-            # Re-run comparisons with updated blacklist
-            if st.session_state.applicant_bytes:
-                common_all, error = compare_excels(st.session_state.applicant_bytes, master_path, st.session_state.blacklist)
-                if not error:
-                    st.session_state.comparison_results = common_all
+            if selected_to_remove:
+                # Remove in reverse order
+                for i in sorted(selected_to_remove, reverse=True):
+                    del st.session_state.blacklist[i]
+                save_blacklist(county, st.session_state.blacklist)
                 
-                df1_orig = pd.read_excel(io.BytesIO(st.session_state.applicant_bytes), engine='openpyxl')
-                mr_potentials, mr_error = compare_addresses(df1_orig, accounts_path, st.session_state.blacklist)
-                if not mr_error:
-                    st.session_state.mr_potentials = mr_potentials
-            
-            st.success(f"Removed {len(selected_to_remove)} entries from blacklist. Results updated.")
-            st.rerun()
+                # Re-run comparisons with updated blacklist
+                if st.session_state.applicant_bytes:
+                    common_all, error = compare_excels(st.session_state.applicant_bytes, master_path, st.session_state.blacklist)
+                    if not error:
+                        st.session_state.comparison_results = common_all
+                    
+                    df1_orig = pd.read_excel(io.BytesIO(st.session_state.applicant_bytes), engine='openpyxl')
+                    mr_potentials, mr_error = compare_addresses(df1_orig, accounts_path, st.session_state.blacklist)
+                    if not mr_error:
+                        st.session_state.mr_potentials = mr_potentials
+                
+                st.success(f"Removed {len(selected_to_remove)} entries from blacklist. Results updated.")
+                st.rerun()
+            else:
+                st.warning("No entries selected.")
     else:
         st.info("Blacklist is empty.")
 
