@@ -292,17 +292,38 @@ def get_file_status(file_path):
         return f"✅ Exists ({size_mb:.1f} MB): {os.path.basename(file_path)}"
     return f"❌ Missing"
 
-# Helper to get county from query params (for persistence)
+# Helper to get county from query params (for sharing)
 def get_persistent_county() -> Optional[str]:
     query_params = st.query_params
     county_param = query_params.get("county", [None])[0]
     if county_param and county_param in WY_COUNTIES:
         return county_param
-    # Fallback to logged-in user
-    logged_in_county = os.environ.get('REMOTE_USER', '').strip()
-    if logged_in_county in WY_COUNTIES:
-        return logged_in_county
     return None
+
+# User preference functions (server-side persistence)
+def get_user_prefs_path():
+    username = os.environ.get('REMOTE_USER', 'anonymous').strip().replace(' ', '_')
+    prefs_dir = 'user_prefs'
+    os.makedirs(prefs_dir, exist_ok=True)
+    return os.path.join(prefs_dir, f"{username}_prefs.json")
+
+def load_user_pref(key: str, default=None):
+    prefs_path = get_user_prefs_path()
+    if os.path.exists(prefs_path):
+        with open(prefs_path, 'r') as f:
+            prefs = json.load(f)
+            return prefs.get(key, default)
+    return default
+
+def save_user_pref(key: str, value):
+    prefs_path = get_user_prefs_path()
+    prefs = {}
+    if os.path.exists(prefs_path):
+        with open(prefs_path, 'r') as f:
+            prefs = json.load(f)
+    prefs[key] = value
+    with open(prefs_path, 'w') as f:
+        json.dump(prefs, f)
 
 # Streamlit App
 st.set_page_config(page_title="WY County Excel Comparison Tool", layout="wide")
@@ -337,7 +358,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Initialize session state (excluding county, which is now persistent via query params)
+# Initialize session state
 if 'last_county' not in st.session_state:
     st.session_state.last_county = None
 if 'master_uploaded' not in st.session_state:
@@ -353,18 +374,24 @@ if 'mr_potentials' not in st.session_state:
 if 'applicant_bytes' not in st.session_state:
     st.session_state.applicant_bytes = None
 
-# Get persistent county from query params
-persistent_county = get_persistent_county()
+# Determine default county: user pref > URL param > logged-in county > first
+user_pref_county = load_user_pref('last_county')
+url_county = get_persistent_county()
+logged_in_county = os.environ.get('REMOTE_USER', '').strip()
+default_county = user_pref_county if user_pref_county in WY_COUNTIES else \
+                url_county if url_county else \
+                logged_in_county if logged_in_county in WY_COUNTIES else WY_COUNTIES[0]
 
 st.subheader("Select Your County")
-# Selectbox with persistent default
-default_index = WY_COUNTIES.index(persistent_county) if persistent_county else 0
+default_index = WY_COUNTIES.index(default_county)
 county = st.selectbox("Choose a county:", WY_COUNTIES, index=default_index, key="county_select")
 
-# Only update query params and rerun if the selectbox changed from our last known state (prevents loop)
+# Detect change and save to user prefs (prevents loop via session state)
 if county != st.session_state.last_county:
     st.session_state.last_county = county
-    st.query_params["county"] = [county]
+    save_user_pref('last_county', county)  # Save to server-side prefs
+    if url_county != county:  # Update URL only if different (for sharing)
+        st.query_params["county"] = [county]
     # Reset session state on county change
     st.session_state.master_uploaded = False
     st.session_state.accounts_uploaded = False
@@ -387,50 +414,6 @@ os.makedirs(master_dir, exist_ok=True)  # Create folder if needed
 # Load blacklist into session (if not already set from change)
 if not st.session_state.blacklist:
     st.session_state.blacklist = load_blacklist(county)
-
-# Custom JS for localStorage persistence (saves last county per browser)
-st.markdown(f"""
-<script>
-    // On load, try to set default from localStorage if no URL param
-    window.addEventListener('DOMContentLoaded', function() {{
-        const urlParams = new URLSearchParams(window.location.search);
-        if (!urlParams.has('county')) {{
-            const savedCounty = localStorage.getItem('ltho_lastCounty');
-            if (savedCounty) {{
-                // Simulate selectbox change to set default
-                const select = document.querySelector('select[aria-label*="county"]');
-                if (select) {{
-                    for (let option of select.options) {{
-                        if (option.text === savedCounty) {{
-                            select.value = option.value;
-                            select.dispatchEvent(new Event('change'));
-                            break;
-                        }}
-                    }}
-                }}
-            }}
-        }}
-    }});
-
-    // Listen for county changes and save to localStorage
-    document.addEventListener('DOMContentLoaded', function() {{
-        const observer = new MutationObserver(function(mutations) {{
-            mutations.forEach(function(mutation) {{
-                if (mutation.type === 'childList') {{
-                    const select = document.querySelector('select[aria-label*="county"]');
-                    if (select) {{
-                        select.addEventListener('change', function() {{
-                            localStorage.setItem('ltho_lastCounty', select.options[select.selectedIndex].text);
-                        }});
-                        observer.disconnect();  // Stop observing once added
-                    }}
-                }}
-            }});
-        }});
-        observer.observe(document.body, {{ childList: true, subtree: true }});
-    }});
-</script>
-""", unsafe_allow_html=True)
 
 # Tabs
 tab1, tab2 = st.tabs(["Compare", "Settings"])
@@ -708,14 +691,15 @@ with tab2:
 with st.sidebar:
     st.header("Instructions")
     st.markdown("""
-    - Select your county above (persists in URL for sharing; saved locally for your next visit).
+    - Select your county above (remembers your last choice for next time).
     - Go to Settings tab to upload the Master List and Accounts List for your county (persist on server).
     - Back to Compare tab: Upload applicant list, click Compare to query and view matches.
     - Use Blacklist Management in Compare tab to add/remove accounts to ignore in future comparisons.
     - Files are stored server-side per county for reuse.
     """)
     if st.button("Clear Session (Forget County)"):
-        st.query_params.clear()  # Clears URL params, including county
+        save_user_pref('last_county', None)  # Clear user pref
+        st.query_params.clear()  # Clears URL params
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.session_state.last_county = None
