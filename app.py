@@ -198,7 +198,7 @@ def compare_addresses(df1_orig, accounts_path, blacklist_set):
             for _, mr_row in mr_df.iterrows():
                 mr_account = mr_row[account_col]
 
-                mr_addr = str(mr_row.get('Address', '')) if pd.notna(mr_row.get('Address', '')) else ""
+                mr_addr = str(mr_row.get('ADDRESS', '')) if pd.notna(mr_row.get('ADDRESS', '')) else ""
                 if not mr_addr:
                     continue
                 mr_addr_norm = normalize_address(mr_addr)
