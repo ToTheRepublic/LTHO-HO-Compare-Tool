@@ -533,30 +533,39 @@ if st.session_state.comparison_results is not None:
 with st.expander("Blacklist Management", expanded=False):
     st.write(f"Current Blacklist ({len(st.session_state.blacklist)} entries):")
     if st.session_state.blacklist:
-        st.write("Blacklisted entries:")
-        for i, d in enumerate(st.session_state.blacklist):
-            if isinstance(d, dict):
-                addr = d.get('applicant_address', '')
-                display = f"{d['account']} - {addr}"
-            else:
-                display = str(d)
-            st.write(f"- {display}")
-        
-        # Checkboxes for removal
-        selected_to_remove = []
-        for i, d in enumerate(st.session_state.blacklist):
-            if isinstance(d, dict):
-                addr = d.get('applicant_address', '')
-                display = f"{d['account']} - {addr}"
-            else:
-                display = str(d)
-            if st.checkbox(f"Remove {display}", key=f"remove_cb_{i}"):
-                selected_to_remove.append(i)
+        blacklist_df = pd.DataFrame(st.session_state.blacklist)
+        if 'account' in blacklist_df.columns and 'applicant_address' in blacklist_df.columns:
+            blacklist_display_df = blacklist_df[['account', 'applicant_address']].copy()
+            blacklist_display_df.columns = ['Account', 'Address']
+        else:
+            # Fallback for old format
+            blacklist_display_df = pd.DataFrame({'Account': st.session_state.blacklist, 'Address': ''})
+        blacklist_display_df['Select'] = False
+        edited_blacklist = st.data_editor(
+            blacklist_display_df,
+            column_config={
+                "Select": st.column_config.CheckboxColumn(
+                    "Select to Remove",
+                    help="Check to remove this entry from blacklist",
+                    default=False,
+                )
+            },
+            use_container_width=True,
+            hide_index=False,
+        )
         
         if st.button("Remove Selected from Blacklist"):
-            if selected_to_remove:
+            selected_rows = edited_blacklist[edited_blacklist['Select'] == True]
+            if not selected_rows.empty:
+                indices_to_remove = []
+                for _, row in selected_rows.iterrows():
+                    for idx, entry in enumerate(st.session_state.blacklist):
+                        if (entry.get('account') == row['Account'] and 
+                            entry.get('applicant_address') == row['Address']):
+                            indices_to_remove.append(idx)
+                            break
                 # Remove in reverse order
-                for i in sorted(selected_to_remove, reverse=True):
+                for i in sorted(indices_to_remove, reverse=True):
                     del st.session_state.blacklist[i]
                 save_blacklist(county, st.session_state.blacklist)
                 
@@ -571,7 +580,7 @@ with st.expander("Blacklist Management", expanded=False):
                     if not mr_error:
                         st.session_state.mr_potentials = mr_potentials
                 
-                st.success(f"Removed {len(selected_to_remove)} entries from blacklist. Results updated.")
+                st.success(f"Removed {len(indices_to_remove)} entries from blacklist. Results updated.")
                 st.rerun()
             else:
                 st.warning("No entries selected.")
