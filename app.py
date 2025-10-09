@@ -400,14 +400,20 @@ if st.button("Compare Lists", type="primary") and applicant_upload is not None:
             elif not mr_potentials.empty:
                 st.dataframe(mr_potentials, use_container_width=True)
                 
-                # Add to blacklist
-                potential_accounts = mr_potentials['Matching Account'].tolist()
-                selected_to_blacklist = st.multiselect("Select Matching Accounts to Add to Blacklist:", potential_accounts, key="add_blacklist")
-                if st.button("Add Selected to Blacklist"):
-                    st.session_state.blacklist.update(selected_to_blacklist)
-                    save_blacklist(county, st.session_state.blacklist)
-                    st.success(f"Added {len(selected_to_blacklist)} accounts to blacklist.")
-                    st.rerun()
+                # Add to blacklist with checkboxes
+                with st.expander("Select Matching Accounts to Add to Blacklist"):
+                    selected_to_blacklist = []
+                    for idx, row in mr_potentials.iterrows():
+                        if st.checkbox(f"Blacklist {row['Matching Account']} (from {row['Applicant Address'][:30]}...)", key=f"add_cb_{idx}"):
+                            selected_to_blacklist.append(row['Matching Account'])
+                    if st.button("Add Selected to Blacklist"):
+                        if selected_to_blacklist:
+                            st.session_state.blacklist.update(selected_to_blacklist)
+                            save_blacklist(county, st.session_state.blacklist)
+                            st.success(f"Added {len(selected_to_blacklist)} accounts to blacklist.")
+                            st.rerun()
+                        else:
+                            st.warning("No accounts selected.")
             else:
                 st.info("No potential M/R address matches found.")
 
