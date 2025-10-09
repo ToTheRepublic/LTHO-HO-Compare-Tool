@@ -71,8 +71,8 @@ def save_blacklist(county, blacklist_set):
 
 def compare_excels(df1_bytes, df2_path, blacklist_set):
     try:
-        df1_orig = pd.read_excel(io.BytesIO(df1_bytes))
-        df2_orig = pd.read_excel(df2_path)
+        df1_orig = pd.read_excel(io.BytesIO(df1_bytes), engine='openpyxl')
+        df2_orig = pd.read_excel(df2_path, engine='openpyxl')
 
         if df1_orig.empty or df2_orig.empty:
             return None, "One or both files are empty."
@@ -138,7 +138,7 @@ def compare_excels(df1_bytes, df2_path, blacklist_set):
 
 def compare_addresses(df1_orig, accounts_path, blacklist_set):
     try:
-        accounts_df = pd.read_excel(accounts_path)
+        accounts_df = pd.read_excel(accounts_path, engine='openpyxl')
         if accounts_df.empty:
             return None, "Accounts file is empty."
 
@@ -154,29 +154,38 @@ def compare_addresses(df1_orig, accounts_path, blacklist_set):
         if mr_df.empty:
             return pd.DataFrame(), None
 
-        # Compute full address for mr_df
-        mr_df['FULL_ADDRESS'] = mr_df.apply(lambda row: get_address(row, None), axis=1)
-
-        filer_address_col1 = next((col for col in df1_orig.columns if 'Filer Address' in col), None)
-        if not filer_address_col1:
-            return None, "Filer Address column not found in applicant file."
-
         potentials = []
+        app_account_col = find_account_col(df1_orig)
         for _, app_row in df1_orig.iterrows():
-            filer_addr = str(app_row.get(filer_address_col1, '')).lower().strip()
-            if not filer_addr:
+            app_account = str(app_row.get(app_account_col, '')) if app_account_col else 'N/A'
+
+            app_predir = str(app_row.get('Predirection', '')) if pd.notna(app_row.get('Predirection', '')) else ""
+            app_stno = str(app_row.get('Street Number', '')) if pd.notna(app_row.get('Street Number', '')) else ""
+            app_stname = str(app_row.get('Street Name', '')) if pd.notna(app_row.get('Street Name', '')) else ""
+            app_sttype = str(app_row.get('Street Type', '')) if pd.notna(app_row.get('Street Type', '')) else ""
+            app_addr_parts = [app_predir, app_stno, app_stname, app_sttype]
+            app_addr = ' '.join(part for part in app_addr_parts if part.strip())
+            if not app_addr:
                 continue
-            app_account = str(app_row.get(find_account_col(df1_orig), '')) if find_account_col(df1_orig) else 'N/A'
+            app_addr_lower = app_addr.lower().strip()
 
             for _, mr_row in mr_df.iterrows():
                 mr_account = mr_row[account_col]
-                mr_addr = str(mr_row['FULL_ADDRESS']).lower().strip()
-                if mr_addr and (filer_addr in mr_addr or mr_addr in filer_addr):
+
+                mr_predir = str(mr_row.get('PREDIRECTION', '')) if pd.notna(mr_row.get('PREDIRECTION', '')) else ""
+                mr_stno = str(mr_row.get('STREETNO', '')) if pd.notna(mr_row.get('STREETNO', '')) else ""
+                mr_stname = str(mr_row.get('STREETNAME', '')) if pd.notna(mr_row.get('STREETNAME', '')) else ""
+                mr_sttype = str(mr_row.get('STREETTYPE', '')) if pd.notna(mr_row.get('STREETTYPE', '')) else ""
+                mr_addr_parts = [mr_predir, mr_stno, mr_stname, mr_sttype]
+                mr_addr = ' '.join(part for part in mr_addr_parts if part.strip())
+                mr_addr_lower = mr_addr.lower().strip()
+
+                if mr_addr and app_addr_lower == mr_addr_lower and app_account != mr_account:
                     potentials.append({
                         'MR Account': mr_account,
-                        'MR Address': mr_row['FULL_ADDRESS'],
+                        'MR Address': mr_addr,
                         'Matched Applicant Account': app_account,
-                        'Applicant Filer Address': str(app_row[filer_address_col1])
+                        'Applicant Address': app_addr
                     })
 
         # Remove duplicates based on MR Account
@@ -294,7 +303,7 @@ master_upload = st.file_uploader("Upload/Update Master List (Excel)", type=['xls
 if master_upload is not None and st.button("Save Master List to Server", type="primary"):
     try:
         with st.spinner("Saving master list..."):
-            df = pd.read_excel(master_upload)
+            df = pd.read_excel(master_upload, engine='openpyxl')
             df.to_excel(master_path, index=False, engine='openpyxl')
         st.success(f"Master list saved for {county} County!")
         st.session_state.master_uploaded = True
@@ -317,7 +326,7 @@ accounts_upload = st.file_uploader("Upload/Update Master Accounts List (Excel)",
 if accounts_upload is not None and st.button("Save Accounts List to Server", type="primary"):
     try:
         with st.spinner("Saving accounts list..."):
-            df = pd.read_excel(accounts_upload)
+            df = pd.read_excel(accounts_upload, engine='openpyxl')
             df.to_excel(accounts_path, index=False, engine='openpyxl')
         st.success(f"Accounts list saved for {county} County!")
         st.session_state.accounts_uploaded = True
@@ -335,7 +344,8 @@ applicant_upload = st.file_uploader("Upload Applicant List (Excel)", type=['xlsx
 # Compare Button
 if st.button("Compare Lists", type="primary") and applicant_upload is not None:
     with st.spinner("Comparing files..."):
-        common_all, error = compare_excels(applicant_upload.read(), master_path, st.session_state.blacklist)
+        applicant_bytes = applicant_upload.read()
+        common_all, error = compare_excels(applicant_bytes, master_path, st.session_state.blacklist)
         if error:
             st.error(error)
         else:
@@ -352,7 +362,8 @@ if st.button("Compare Lists", type="primary") and applicant_upload is not None:
 
             # Second comparison: Address matches for M/R
             st.subheader("Potential M/R Accounts")
-            mr_potentials, mr_error = compare_addresses(pd.read_excel(io.BytesIO(applicant_upload.read())), accounts_path, st.session_state.blacklist)
+            df1_orig = pd.read_excel(io.BytesIO(applicant_bytes), engine='openpyxl')
+            mr_potentials, mr_error = compare_addresses(df1_orig, accounts_path, st.session_state.blacklist)
             if mr_error:
                 st.error(mr_error)
             elif not mr_potentials.empty:
