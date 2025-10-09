@@ -11,6 +11,7 @@ import base64
 import urllib.parse
 from streamlit_pdf_viewer import pdf_viewer
 import streamlit.components.v1 as components
+from typing import Optional
 
 # Wyoming counties list
 WY_COUNTIES = [
