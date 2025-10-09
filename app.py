@@ -172,12 +172,7 @@ def compare_addresses(df1_orig, accounts_path, blacklist_set):
             for _, mr_row in mr_df.iterrows():
                 mr_account = mr_row[account_col]
 
-                mr_predir = str(mr_row.get('PREDIRECTION', '')) if pd.notna(mr_row.get('PREDIRECTION', '')) else ""
-                mr_stno = str(mr_row.get('STREETNO', '')) if pd.notna(mr_row.get('STREETNO', '')) else ""
-                mr_stname = str(mr_row.get('STREETNAME', '')) if pd.notna(mr_row.get('STREETNAME', '')) else ""
-                mr_sttype = str(mr_row.get('STREETTYPE', '')) if pd.notna(mr_row.get('STREETTYPE', '')) else ""
-                mr_addr_parts = [mr_predir, mr_stno, mr_stname, mr_sttype]
-                mr_addr = ' '.join(part for part in mr_addr_parts if part.strip())
+                mr_addr = str(mr_row.get('Address', '')) if pd.notna(mr_row.get('Address', '')) else ""
                 mr_addr_lower = mr_addr.lower().strip()
 
                 if mr_addr and app_addr_lower == mr_addr_lower and app_account != mr_account:
