@@ -63,7 +63,7 @@ def load_blacklist(county):
             data = json.load(f)
             if isinstance(data, list) and data and isinstance(data[0], str):
                 # Migrate old format: list of strings to list of dicts
-                return [{'account': acc, 'applicant_address': '', 'norm_addr': ''} for acc in data]
+                return [{'account': acc, 'applicant_address': '', 'applicant_account': '', 'norm_addr': ''} for acc in data]
             else:
                 return data
     return []
@@ -504,6 +504,7 @@ if st.session_state.comparison_results is not None:
                     selected_to_blacklist.append({
                         'account': row['Matching Account'],
                         'applicant_address': row['Applicant Address'],
+                        'applicant_account': row['Applicant Account'],
                         'norm_addr': app_addr_norm
                     })
                 if selected_to_blacklist:
@@ -534,12 +535,12 @@ with st.expander("Blacklist Management", expanded=False):
     st.write(f"Current Blacklist ({len(st.session_state.blacklist)} entries):")
     if st.session_state.blacklist:
         blacklist_df = pd.DataFrame(st.session_state.blacklist)
-        if 'account' in blacklist_df.columns and 'applicant_address' in blacklist_df.columns:
-            blacklist_display_df = blacklist_df[['account', 'applicant_address']].copy()
-            blacklist_display_df.columns = ['Account', 'Address']
+        if 'applicant_account' in blacklist_df.columns and 'account' in blacklist_df.columns and 'applicant_address' in blacklist_df.columns:
+            blacklist_display_df = blacklist_df[['applicant_account', 'account', 'applicant_address']].copy()
+            blacklist_display_df.columns = ['Applicant Account', 'Matching Account', 'Address']
         else:
             # Fallback for old format
-            blacklist_display_df = pd.DataFrame({'Account': st.session_state.blacklist, 'Address': ''})
+            blacklist_display_df = pd.DataFrame({'Applicant Account': '', 'Matching Account': st.session_state.blacklist, 'Address': ''})
         blacklist_display_df['Select'] = False
         edited_blacklist = st.data_editor(
             blacklist_display_df,
@@ -560,7 +561,7 @@ with st.expander("Blacklist Management", expanded=False):
                 indices_to_remove = []
                 for _, row in selected_rows.iterrows():
                     for idx, entry in enumerate(st.session_state.blacklist):
-                        if (entry.get('account') == row['Account'] and 
+                        if (entry.get('account') == row['Matching Account'] and 
                             entry.get('applicant_address') == row['Address']):
                             indices_to_remove.append(idx)
                             break
