@@ -205,20 +205,13 @@ def compare_addresses(df1_orig, accounts_path, blacklist_set):
 
                 if app_addr_norm == mr_addr_norm and app_account != mr_account:
                     potentials.append({
-                        'MR Account': mr_account,
-                        'MR Address': mr_addr,
-                        'Matched Applicant Account': app_account,
-                        'Applicant Address': app_addr
+                        'Applicant Account': app_account,
+                        'Applicant Address': app_addr,
+                        'Matching Account': mr_account,
+                        'Matching Address': mr_addr
                     })
 
-        # Remove duplicates based on MR Account
-        unique_potentials = []
-        seen_mr = set()
-        for p in potentials:
-            if p['MR Account'] not in seen_mr:
-                unique_potentials.append(p)
-                seen_mr.add(p['MR Account'])
-        return pd.DataFrame(unique_potentials), None
+        return pd.DataFrame(potentials), None
     except Exception as e:
         return None, f"Failed to compare addresses: {str(e)}"
 
@@ -393,8 +386,8 @@ if st.button("Compare Lists", type="primary") and applicant_upload is not None:
                 st.dataframe(mr_potentials, use_container_width=True)
                 
                 # Add to blacklist
-                potential_accounts = mr_potentials['MR Account'].tolist()
-                selected_to_blacklist = st.multiselect("Select M/R Accounts to Add to Blacklist:", potential_accounts, key="add_blacklist")
+                potential_accounts = mr_potentials['Matching Account'].tolist()
+                selected_to_blacklist = st.multiselect("Select Matching Accounts to Add to Blacklist:", potential_accounts, key="add_blacklist")
                 if st.button("Add Selected to Blacklist"):
                     st.session_state.blacklist.update(selected_to_blacklist)
                     save_blacklist(county, st.session_state.blacklist)
