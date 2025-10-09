@@ -541,7 +541,7 @@ with st.expander("Blacklist Management", expanded=False):
         else:
             # Fallback for old format
             blacklist_display_df = pd.DataFrame({
-                'Applicant Account': [''] * len(blacklist_df),
+                'Applicant Account': blacklist_df['applicant_account'],#[''] * len(blacklist_df),
                 'Matching Account': blacklist_df['account'],
                 'Address': blacklist_df['applicant_address']
             })
