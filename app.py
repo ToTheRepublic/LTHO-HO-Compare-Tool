@@ -481,38 +481,49 @@ if st.session_state.comparison_results is not None:
     st.subheader("Potential M/R Accounts")
     if st.session_state.mr_potentials is not None:
         if not st.session_state.mr_potentials.empty:
-            st.dataframe(st.session_state.mr_potentials, use_container_width=True)
+            potentials_df = st.session_state.mr_potentials.copy()
+            potentials_df['Select'] = False
+            edited_df = st.data_editor(
+                potentials_df,
+                column_config={
+                    "Select": st.column_config.CheckboxColumn(
+                        "Select to Blacklist",
+                        help="Check to add this matching account to blacklist",
+                        default=False,
+                    )
+                },
+                use_container_width=True,
+                hide_index=False,
+            )
             
-            # Add to blacklist with checkboxes
-            with st.expander("Select Matching Accounts to Add to Blacklist"):
+            if st.button("Add Selected to Blacklist"):
+                selected_rows = edited_df[edited_df['Select'] == True]
                 selected_to_blacklist = []
-                for idx, row in st.session_state.mr_potentials.iterrows():
-                    if st.checkbox(f"Blacklist {row['Matching Account']} (from {row['Applicant Address'][:30]}...)", key=f"add_cb_{idx}"):
-                        app_addr_norm = normalize_address(row['Applicant Address'])
-                        selected_to_blacklist.append({
-                            'account': row['Matching Account'],
-                            'applicant_address': row['Applicant Address'],
-                            'norm_addr': app_addr_norm
-                        })
-                if st.button("Add Selected to Blacklist"):
-                    if selected_to_blacklist:
-                        st.session_state.blacklist.extend(selected_to_blacklist)
-                        save_blacklist(county, st.session_state.blacklist)
-                        
-                        # Re-run comparisons with updated blacklist
-                        common_all, error = compare_excels(st.session_state.applicant_bytes, master_path, st.session_state.blacklist)
-                        if not error:
-                            st.session_state.comparison_results = common_all
-                        
-                        df1_orig = pd.read_excel(io.BytesIO(st.session_state.applicant_bytes), engine='openpyxl')
-                        mr_potentials, mr_error = compare_addresses(df1_orig, accounts_path, st.session_state.blacklist)
-                        if not mr_error:
-                            st.session_state.mr_potentials = mr_potentials
-                        
-                        st.success(f"Added {len(selected_to_blacklist)} accounts to blacklist. Results updated.")
-                        st.rerun()
-                    else:
-                        st.warning("No accounts selected.")
+                for _, row in selected_rows.iterrows():
+                    app_addr_norm = normalize_address(row['Applicant Address'])
+                    selected_to_blacklist.append({
+                        'account': row['Matching Account'],
+                        'applicant_address': row['Applicant Address'],
+                        'norm_addr': app_addr_norm
+                    })
+                if selected_to_blacklist:
+                    st.session_state.blacklist.extend(selected_to_blacklist)
+                    save_blacklist(county, st.session_state.blacklist)
+                    
+                    # Re-run comparisons with updated blacklist
+                    common_all, error = compare_excels(st.session_state.applicant_bytes, master_path, st.session_state.blacklist)
+                    if not error:
+                        st.session_state.comparison_results = common_all
+                    
+                    df1_orig = pd.read_excel(io.BytesIO(st.session_state.applicant_bytes), engine='openpyxl')
+                    mr_potentials, mr_error = compare_addresses(df1_orig, accounts_path, st.session_state.blacklist)
+                    if not mr_error:
+                        st.session_state.mr_potentials = mr_potentials
+                    
+                    st.success(f"Added {len(selected_to_blacklist)} accounts to blacklist. Results updated.")
+                    st.rerun()
+                else:
+                    st.warning("No accounts selected.")
         else:
             st.info("No potential M/R address matches found.")
     else:
