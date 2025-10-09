@@ -69,6 +69,32 @@ def save_blacklist(county, blacklist_set):
     with open(blacklist_path, 'w') as f:
         json.dump(list(blacklist_set), f)
 
+def normalize_address(addr):
+    if not addr:
+        return ''
+    addr = addr.lower().strip()
+    # Common replacements: full to abbr
+    replacements = {
+        r'\bstreet\b': 'st',
+        r'\bavenue\b': 'ave',
+        r'\boulevard\b': 'blvd',
+        r'\bdrive\b': 'dr',
+        r'\broad\b': 'rd',
+        r'\bcircle\b': 'cir',
+        r'\bcourt\b': 'ct',
+        r'\blane\b': 'ln',
+        r'\bplace\b': 'pl',
+        r'\balley\b': 'aly',
+        r'\bcenter\b': 'ctr',
+        r'\bhighway\b': 'hwy',
+        # Add more as needed
+    }
+    for full, abbr in replacements.items():
+        addr = re.sub(full, abbr, addr)
+    # Remove extra spaces
+    addr = re.sub(r'\s+', ' ', addr).strip()
+    return addr
+
 def compare_excels(df1_bytes, df2_path, blacklist_set):
     try:
         df1_orig = pd.read_excel(io.BytesIO(df1_bytes), engine='openpyxl')
@@ -163,19 +189,21 @@ def compare_addresses(df1_orig, accounts_path, blacklist_set):
             app_stno = str(app_row.get('Street Number', '')) if pd.notna(app_row.get('Street Number', '')) else ""
             app_stname = str(app_row.get('Street Name', '')) if pd.notna(app_row.get('Street Name', '')) else ""
             app_sttype = str(app_row.get('Street Type', '')) if pd.notna(app_row.get('Street Type', '')) else ""
-            app_addr_parts = [app_predir, app_stno, app_stname, app_sttype]
-            app_addr = ' '.join(part for part in app_addr_parts if part.strip())
+            app_addr_parts = [p.strip() for p in [app_predir, app_stno, app_stname, app_sttype]]
+            app_addr = ' '.join(part for part in app_addr_parts if part)
             if not app_addr:
                 continue
-            app_addr_lower = app_addr.lower().strip()
+            app_addr_norm = normalize_address(app_addr)
 
             for _, mr_row in mr_df.iterrows():
                 mr_account = mr_row[account_col]
 
                 mr_addr = str(mr_row.get('Address', '')) if pd.notna(mr_row.get('Address', '')) else ""
-                mr_addr_lower = mr_addr.lower().strip()
+                if not mr_addr:
+                    continue
+                mr_addr_norm = normalize_address(mr_addr)
 
-                if mr_addr and app_addr_lower == mr_addr_lower and app_account != mr_account:
+                if app_addr_norm == mr_addr_norm and app_account != mr_account:
                     potentials.append({
                         'MR Account': mr_account,
                         'MR Address': mr_addr,
