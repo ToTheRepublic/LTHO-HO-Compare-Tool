@@ -211,7 +211,14 @@ def compare_addresses(df1_orig, accounts_path, blacklist_set):
                         'Matching Address': mr_addr
                     })
 
-        return pd.DataFrame(potentials), None
+        # Remove duplicates based on Matching Account (MR account), keeping the first occurrence
+        unique_potentials = []
+        seen_mr = set()
+        for p in potentials:
+            if p['Matching Account'] not in seen_mr:
+                unique_potentials.append(p)
+                seen_mr.add(p['Matching Account'])
+        return pd.DataFrame(unique_potentials), None
     except Exception as e:
         return None, f"Failed to compare addresses: {str(e)}"
 
@@ -246,10 +253,11 @@ def get_accounts_path(county):
 st.set_page_config(page_title="WY County Excel Comparison Tool", layout="wide")
 st.title("Wyoming County Excel Comparison Tool")
 
-# Back to Home button (styled, same tab)
+# Back to Home button (styled, same tab) - Fixed hover with CSS
 st.markdown(
     """
-    <a href="https://assessortools.com" target="_self" rel="noopener noreferrer" style="
+    <style>
+    .back-to-home {
         text-decoration: none;
         display: inline-block;
         padding: 8px 16px;
@@ -260,8 +268,14 @@ st.markdown(
         font-weight: 500;
         cursor: pointer;
         margin-bottom: 20px;
-    " onmouseover="this.style.backgroundColor='#2563EB'; this.style.borderColor='#2563EB';" 
-       onmouseout="this.style.backgroundColor='#3B82F6'; this.style.borderColor='#3B82F6';">
+        transition: background-color 0.2s, border-color 0.2s;
+    }
+    .back-to-home:hover {
+        background-color: #2563EB;
+        border-color: #2563EB;
+    }
+    </style>
+    <a href="https://assessortools.com" target="_self" rel="noopener noreferrer" class="back-to-home">
         ← Back to Home
     </a>
     """,
