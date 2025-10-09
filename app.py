@@ -567,8 +567,9 @@ with st.expander("Blacklist Management", expanded=False):
                     for idx, entry in enumerate(st.session_state.blacklist):
                         match_acc = entry.get('account') == row['Matching Account']
                         match_addr = entry.get('applicant_address') == row['Address']
+                        match_app = entry.get('applicant_account') == row['Applicant Account']
                         if 'applicant_account' in entry:
-                            match_app = entry.get('applicant_account') == row['Applicant Account']
+                            #match_app = entry.get('applicant_account') == row['Applicant Account']
                             if match_acc and match_addr and match_app:
                                 indices_to_remove.append(idx)
                                 break
