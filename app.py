@@ -211,13 +211,14 @@ def compare_addresses(df1_orig, accounts_path, blacklist_set):
                         'Matching Address': mr_addr
                     })
 
-        # Remove duplicates based on Matching Account (MR account), keeping the first occurrence
+        # Remove duplicates based on applicant address (one row per unique address from applicant list)
         unique_potentials = []
-        seen_mr = set()
+        seen_addr = set()
         for p in potentials:
-            if p['Matching Account'] not in seen_mr:
+            addr_key = normalize_address(p['Applicant Address'])
+            if addr_key not in seen_addr:
                 unique_potentials.append(p)
-                seen_mr.add(p['Matching Account'])
+                seen_addr.add(addr_key)
         return pd.DataFrame(unique_potentials), None
     except Exception as e:
         return None, f"Failed to compare addresses: {str(e)}"
