@@ -338,17 +338,22 @@ st.markdown(
         display: inline-block;
         padding: 8px 16px;
         background-color: #3B82F6;
-        color: white;
+        color: white !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
         border-radius: 6px;
         border: 1px solid #3B82F6;
-        font-weight: 500;
         cursor: pointer;
         margin-bottom: 20px;
-        transition: background-color 0.2s, border-color 0.2s;
+        transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.1);  /* Subtle shadow for readability */
+        opacity: 1 !important;  /* Prevent fading */
     }
     .back-to-home:hover {
         background-color: #2563EB;
         border-color: #2563EB;
+        color: white !important;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.2);  /* Slightly stronger on hover */
     }
     </style>
     <a href="https://assessortools.com" target="_self" rel="noopener noreferrer" class="back-to-home">
