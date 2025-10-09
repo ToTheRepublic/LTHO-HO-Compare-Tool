@@ -388,6 +388,50 @@ os.makedirs(master_dir, exist_ok=True)  # Create folder if needed
 if not st.session_state.blacklist:
     st.session_state.blacklist = load_blacklist(county)
 
+# Custom JS for localStorage persistence (saves last county per browser)
+st.markdown(f"""
+<script>
+    // On load, try to set default from localStorage if no URL param
+    window.addEventListener('DOMContentLoaded', function() {{
+        const urlParams = new URLSearchParams(window.location.search);
+        if (!urlParams.has('county')) {{
+            const savedCounty = localStorage.getItem('ltho_lastCounty');
+            if (savedCounty) {{
+                // Simulate selectbox change to set default
+                const select = document.querySelector('select[aria-label*="county"]');
+                if (select) {{
+                    for (let option of select.options) {{
+                        if (option.text === savedCounty) {{
+                            select.value = option.value;
+                            select.dispatchEvent(new Event('change'));
+                            break;
+                        }}
+                    }}
+                }}
+            }}
+        }}
+    }});
+
+    // Listen for county changes and save to localStorage
+    document.addEventListener('DOMContentLoaded', function() {{
+        const observer = new MutationObserver(function(mutations) {{
+            mutations.forEach(function(mutation) {{
+                if (mutation.type === 'childList') {{
+                    const select = document.querySelector('select[aria-label*="county"]');
+                    if (select) {{
+                        select.addEventListener('change', function() {{
+                            localStorage.setItem('ltho_lastCounty', select.options[select.selectedIndex].text);
+                        }});
+                        observer.disconnect();  // Stop observing once added
+                    }}
+                }}
+            }});
+        }});
+        observer.observe(document.body, {{ childList: true, subtree: true }});
+    }});
+</script>
+""", unsafe_allow_html=True)
+
 # Tabs
 tab1, tab2 = st.tabs(["Compare", "Settings"])
 
@@ -664,7 +708,7 @@ with tab2:
 with st.sidebar:
     st.header("Instructions")
     st.markdown("""
-    - Select your county above (persists in URL for future visits).
+    - Select your county above (persists in URL for sharing; saved locally for your next visit).
     - Go to Settings tab to upload the Master List and Accounts List for your county (persist on server).
     - Back to Compare tab: Upload applicant list, click Compare to query and view matches.
     - Use Blacklist Management in Compare tab to add/remove accounts to ignore in future comparisons.
