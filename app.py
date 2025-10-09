@@ -410,15 +410,20 @@ with tab1:
     # Display results outside the button block
     if st.session_state.comparison_results is not None:
         st.success("Comparison complete!")
-        st.dataframe(st.session_state.comparison_results, use_container_width=True)
         
-        txt_content = generate_txt_output(st.session_state.comparison_results)
-        st.download_button(
-            label="Download Matches as .TXT",
-            data=txt_content,
-            file_name=f"{county}_LTHO_Matches.txt",
-            mime="text/plain"
-        )
+        st.subheader("HO Applicants w/ LTHO Last Tax Year")
+        if not st.session_state.comparison_results.empty:
+            st.dataframe(st.session_state.comparison_results, use_container_width=True)
+            
+            txt_content = generate_txt_output(st.session_state.comparison_results)
+            st.download_button(
+                label="Download Matches as .TXT",
+                data=txt_content,
+                file_name=f"{county}_LTHO_Matches.txt",
+                mime="text/plain"
+            )
+        else:
+            st.info("No HO Applicants w/ LTHO Last Tax Year found.")
 
         # Second comparison: Address matches for M/R
         st.subheader("Potential M/R Accounts")
