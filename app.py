@@ -180,7 +180,8 @@ def compare_addresses(df1_orig, accounts_path, blacklist_set):
         if mr_df.empty:
             return pd.DataFrame(), None
 
-        potentials = []
+        # Normalize applicant addresses
+        applicant_addrs = {}
         app_account_col = find_account_col(df1_orig)
         for _, app_row in df1_orig.iterrows():
             app_account = str(app_row.get(app_account_col, '')) if app_account_col else 'N/A'
@@ -195,31 +196,52 @@ def compare_addresses(df1_orig, accounts_path, blacklist_set):
                 continue
             app_addr_norm = normalize_address(app_addr)
 
-            for _, mr_row in mr_df.iterrows():
-                mr_account = mr_row[account_col]
+            if app_addr_norm:
+                if app_addr_norm not in applicant_addrs:
+                    applicant_addrs[app_addr_norm] = []
+                applicant_addrs[app_addr_norm].append({
+                    'Account': app_account,
+                    'Address': app_addr
+                })
 
-                mr_addr = str(mr_row.get('ADDRESS', '')) if pd.notna(mr_row.get('ADDRESS', '')) else ""
-                if not mr_addr:
-                    continue
-                mr_addr_norm = normalize_address(mr_addr)
+        # Normalize MR addresses
+        mr_addrs = {}
+        for _, mr_row in mr_df.iterrows():
+            mr_account = mr_row[account_col]
 
-                if app_addr_norm == mr_addr_norm and app_account != mr_account:
-                    potentials.append({
-                        'Applicant Account': app_account,
-                        'Applicant Address': app_addr,
-                        'Matching Account': mr_account,
-                        'Matching Address': mr_addr
-                    })
+            mr_addr = str(mr_row.get('ADDRESS', '')) if pd.notna(mr_row.get('ADDRESS', '')) else ""
+            if not mr_addr:
+                continue
+            mr_addr_norm = normalize_address(mr_addr)
 
-        # Remove duplicates based on applicant address (one row per unique address from applicant list)
-        unique_potentials = []
-        seen_addr = set()
-        for p in potentials:
-            addr_key = normalize_address(p['Applicant Address'])
-            if addr_key not in seen_addr:
-                unique_potentials.append(p)
-                seen_addr.add(addr_key)
-        return pd.DataFrame(unique_potentials), None
+            if mr_addr_norm:
+                if mr_addr_norm not in mr_addrs:
+                    mr_addrs[mr_addr_norm] = []
+                mr_addrs[mr_addr_norm].append({
+                    'Account': mr_account,
+                    'Address': mr_addr
+                })
+
+        # Find matches
+        potentials = []
+        for norm_addr, app_list in applicant_addrs.items():
+            if norm_addr in mr_addrs:
+                mr_list = mr_addrs[norm_addr]
+                for app in app_list:
+                    for mr in mr_list:
+                        if app['Account'] != mr['Account']:
+                            potentials.append({
+                                'Applicant Account': app['Account'],
+                                'Applicant Address': app['Address'],
+                                'Matching Account': mr['Account'],
+                                'Matching Address': mr['Address']
+                            })
+
+        potentials_df = pd.DataFrame(potentials)
+        if not potentials_df.empty:
+            potentials_df = potentials_df.sort_values(['Applicant Address', 'Matching Account'])
+
+        return potentials_df, None
     except Exception as e:
         return None, f"Failed to compare addresses: {str(e)}"
 
@@ -448,13 +470,18 @@ if st.session_state.comparison_results is not None:
         if not st.session_state.mr_potentials.empty:
             st.dataframe(st.session_state.mr_potentials, use_container_width=True)
             
-            # Add to blacklist with checkboxes
+            # Add to blacklist with multiselect
             with st.expander("Select Matching Accounts to Add to Blacklist"):
-                selected_to_blacklist = []
-                for idx, row in st.session_state.mr_potentials.iterrows():
-                    if st.checkbox(f"Blacklist {row['Matching Account']} (from {row['Applicant Address'][:30]}...)", key=f"add_cb_{idx}"):
-                        selected_to_blacklist.append(row['Matching Account'])
+                desc = [f"Blacklist {row['Matching Account']} (from {row['Applicant Address'][:30]}...)" for _, row in st.session_state.mr_potentials.iterrows()]
+                selected_desc = st.multiselect("Select accounts to add to blacklist:", desc, key="blacklist_ms")
                 if st.button("Add Selected to Blacklist"):
+                    selected_to_blacklist = []
+                    for d in selected_desc:
+                        # Parse account from description: after "Blacklist " and before " (from"
+                        parts = d.split(' (from')
+                        if parts:
+                            acc_part = parts[0].replace("Blacklist ", "").strip()
+                            selected_to_blacklist.append(acc_part)
                     if selected_to_blacklist:
                         st.session_state.blacklist.update(selected_to_blacklist)
                         save_blacklist(county, st.session_state.blacklist)
