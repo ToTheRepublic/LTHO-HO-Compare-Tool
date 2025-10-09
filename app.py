@@ -423,7 +423,7 @@ with tab1:
                 mime="text/plain"
             )
         else:
-            st.info("No HO Applicants w/ LTHO Last Tax Year found.")
+            st.info("No HO applicants w/ LTHO last tax year found.")
 
         # Second comparison: Address matches for M/R
         st.subheader("Potential M/R Accounts")
