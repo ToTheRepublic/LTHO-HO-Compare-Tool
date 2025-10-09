@@ -60,14 +60,14 @@ def load_blacklist(county):
     blacklist_path = f"master_lists/{county}/blacklist.json"
     if os.path.exists(blacklist_path):
         with open(blacklist_path, 'r') as f:
-            return set(json.load(f))
-    return set()
+            return json.load(f)
+    return []
 
-def save_blacklist(county, blacklist_set):
+def save_blacklist(county, blacklist_list):
     blacklist_path = f"master_lists/{county}/blacklist.json"
     os.makedirs(os.path.dirname(blacklist_path), exist_ok=True)
     with open(blacklist_path, 'w') as f:
-        json.dump(list(blacklist_set), f)
+        json.dump(blacklist_list, f)
 
 def normalize_address(addr):
     if not addr:
@@ -95,7 +95,8 @@ def normalize_address(addr):
     addr = re.sub(r'\s+', ' ', addr).strip()
     return addr
 
-def compare_excels(df1_bytes, df2_path, blacklist_set):
+def compare_excels(df1_bytes, df2_path, blacklist_list):
+    blacklist_accounts = {d['account'] for d in blacklist_list if 'account' in d}
     try:
         df1_orig = pd.read_excel(io.BytesIO(df1_bytes), engine='openpyxl')
         df2_orig = pd.read_excel(df2_path, engine='openpyxl')
@@ -130,7 +131,7 @@ def compare_excels(df1_bytes, df2_path, blacklist_set):
         df2.set_index(key_col2, inplace=True)
         common = df1[df1.index.isin(df2.index)]
         # Filter out blacklisted accounts
-        common = common[~common.index.isin(blacklist_set)]
+        common = common[~common.index.isin(blacklist_accounts)]
 
         common_display = []
         for name, group in common.groupby(level=0):
@@ -162,7 +163,8 @@ def compare_excels(df1_bytes, df2_path, blacklist_set):
     except Exception as e:
         return None, f"Failed to compare files: {str(e)}"
 
-def compare_addresses(df1_orig, accounts_path, blacklist_set):
+def compare_addresses(df1_orig, accounts_path, blacklist_list):
+    blacklist_norms = {d['norm_addr'] for d in blacklist_list if 'norm_addr' in d}
     try:
         accounts_df = pd.read_excel(accounts_path, engine='openpyxl')
         if accounts_df.empty:
@@ -172,10 +174,11 @@ def compare_addresses(df1_orig, accounts_path, blacklist_set):
         if not account_col:
             return None, "Could not identify account number column in accounts file."
 
+        blacklist_accounts = {d['account'] for d in blacklist_list if 'account' in d}
         # Filter for M and R accounts
         mr_df = accounts_df[accounts_df[account_col].astype(str).str.match(r'^[MR]\d{7}$', na=False)].copy()
-        # Filter out blacklisted
-        mr_df = mr_df[~mr_df[account_col].isin(blacklist_set)]
+        # Filter out blacklisted accounts
+        mr_df = mr_df[~mr_df[account_col].isin(blacklist_accounts)]
 
         if mr_df.empty:
             return pd.DataFrame(), None
@@ -195,6 +198,10 @@ def compare_addresses(df1_orig, accounts_path, blacklist_set):
             if not app_addr:
                 continue
             app_addr_norm = normalize_address(app_addr)
+
+            # Skip if address is blacklisted
+            if app_addr_norm in blacklist_norms:
+                continue
 
             if app_addr_norm:
                 if app_addr_norm not in applicant_addrs:
@@ -313,7 +320,7 @@ if 'master_uploaded' not in st.session_state:
 if 'accounts_uploaded' not in st.session_state:
     st.session_state.accounts_uploaded = False
 if 'blacklist' not in st.session_state:
-    st.session_state.blacklist = set()
+    st.session_state.blacklist = []
 if 'comparison_results' not in st.session_state:
     st.session_state.comparison_results = None
 if 'mr_potentials' not in st.session_state:
@@ -470,20 +477,20 @@ if st.session_state.comparison_results is not None:
         if not st.session_state.mr_potentials.empty:
             st.dataframe(st.session_state.mr_potentials, use_container_width=True)
             
-            # Add to blacklist with multiselect
+            # Add to blacklist with checkboxes
             with st.expander("Select Matching Accounts to Add to Blacklist"):
-                desc = [f"Blacklist {row['Matching Account']} (from {row['Applicant Address'][:30]}...)" for _, row in st.session_state.mr_potentials.iterrows()]
-                selected_desc = st.multiselect("Select accounts to add to blacklist:", desc, key="blacklist_ms")
+                selected_to_blacklist = []
+                for idx, row in st.session_state.mr_potentials.iterrows():
+                    if st.checkbox(f"Blacklist {row['Matching Account']} (from {row['Applicant Address'][:30]}...)", key=f"add_cb_{idx}"):
+                        app_addr_norm = normalize_address(row['Applicant Address'])
+                        selected_to_blacklist.append({
+                            'account': row['Matching Account'],
+                            'applicant_address': row['Applicant Address'],
+                            'norm_addr': app_addr_norm
+                        })
                 if st.button("Add Selected to Blacklist"):
-                    selected_to_blacklist = []
-                    for d in selected_desc:
-                        # Parse account from description: after "Blacklist " and before " (from"
-                        parts = d.split(' (from')
-                        if parts:
-                            acc_part = parts[0].replace("Blacklist ", "").strip()
-                            selected_to_blacklist.append(acc_part)
                     if selected_to_blacklist:
-                        st.session_state.blacklist.update(selected_to_blacklist)
+                        st.session_state.blacklist.extend(selected_to_blacklist)
                         save_blacklist(county, st.session_state.blacklist)
                         
                         # Re-run comparisons with updated blacklist
@@ -507,14 +514,19 @@ if st.session_state.comparison_results is not None:
 
 # Blacklist Management
 with st.expander("Blacklist Management", expanded=False):
-    st.write(f"Current Blacklist ({len(st.session_state.blacklist)} accounts):")
-    blacklist_list = list(st.session_state.blacklist)
-    if blacklist_list:
-        st.write(blacklist_list)
-        selected_to_remove = st.multiselect("Select Accounts to Remove from Blacklist:", blacklist_list, key="remove_blacklist")
+    st.write(f"Current Blacklist ({len(st.session_state.blacklist)} entries):")
+    if st.session_state.blacklist:
+        blacklist_display = [f"{d['account']} - {d['applicant_address']}" for d in st.session_state.blacklist]
+        st.write(blacklist_display)
+        selected_to_remove = st.multiselect("Select Entries to Remove from Blacklist:", blacklist_display, key="remove_blacklist")
         if st.button("Remove Selected from Blacklist"):
-            for acc in selected_to_remove:
-                st.session_state.blacklist.discard(acc)
+            indices_to_remove = []
+            for i, display in enumerate(blacklist_display):
+                if display in selected_to_remove:
+                    indices_to_remove.append(i)
+            # Remove in reverse order to preserve indices
+            for i in sorted(indices_to_remove, reverse=True):
+                del st.session_state.blacklist[i]
             save_blacklist(county, st.session_state.blacklist)
             
             # Re-run comparisons with updated blacklist
@@ -528,7 +540,7 @@ with st.expander("Blacklist Management", expanded=False):
                 if not mr_error:
                     st.session_state.mr_potentials = mr_potentials
             
-            st.success(f"Removed {len(selected_to_remove)} accounts from blacklist. Results updated.")
+            st.success(f"Removed {len(selected_to_remove)} entries from blacklist. Results updated.")
             st.rerun()
     else:
         st.info("Blacklist is empty.")
