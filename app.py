@@ -292,6 +292,12 @@ if 'accounts_uploaded' not in st.session_state:
     st.session_state.accounts_uploaded = False
 if 'blacklist' not in st.session_state:
     st.session_state.blacklist = set()
+if 'common_all' not in st.session_state:
+    st.session_state.common_all = None
+if 'mr_potentials' not in st.session_state:
+    st.session_state.mr_potentials = None
+if 'applicant_bytes' not in st.session_state:
+    st.session_state.applicant_bytes = None
 
 # Get logged-in county from auth
 logged_in_county = os.environ.get('REMOTE_USER', '').strip()
@@ -304,6 +310,9 @@ if county != st.session_state.county:
     st.session_state.master_uploaded = False
     st.session_state.accounts_uploaded = False
     st.session_state.blacklist = load_blacklist(county)
+    st.session_state.common_all = None
+    st.session_state.mr_potentials = None
+    st.session_state.applicant_bytes = None
     st.rerun()
 
 if not county:
@@ -326,6 +335,8 @@ if os.path.exists(master_path):
     st.info("You can upload a new one below to overwrite.")
     if st.button("Refresh Comparison (Reload Master)", type="secondary"):
         st.session_state.master_uploaded = True  # Trigger reload
+        st.session_state.common_all = None
+        st.session_state.mr_potentials = None
         st.rerun()
 else:
     st.warning("No master list found for this county. Please upload one.")
@@ -338,6 +349,8 @@ if master_upload is not None and st.button("Save Master List to Server", type="p
             df.to_excel(master_path, index=False, engine='openpyxl')
         st.success(f"Master list saved for {county} County!")
         st.session_state.master_uploaded = True
+        st.session_state.common_all = None
+        st.session_state.mr_potentials = None
         st.rerun()
     except Exception as e:
         st.error(f"Failed to save: {str(e)}")
@@ -349,6 +362,8 @@ if os.path.exists(accounts_path):
     st.info("You can upload a new one below to overwrite.")
     if st.button("Refresh Comparison (Reload Accounts)", type="secondary"):
         st.session_state.accounts_uploaded = True  # Trigger reload
+        st.session_state.common_all = None
+        st.session_state.mr_potentials = None
         st.rerun()
 else:
     st.warning("No accounts list found for this county. Please upload one.")
@@ -361,6 +376,8 @@ if accounts_upload is not None and st.button("Save Accounts List to Server", typ
             df.to_excel(accounts_path, index=False, engine='openpyxl')
         st.success(f"Accounts list saved for {county} County!")
         st.session_state.accounts_uploaded = True
+        st.session_state.common_all = None
+        st.session_state.mr_potentials = None
         st.rerun()
     except Exception as e:
         st.error(f"Failed to save: {str(e)}")
@@ -376,46 +393,57 @@ applicant_upload = st.file_uploader("Upload Applicant List (Excel)", type=['xlsx
 if st.button("Compare Lists", type="primary") and applicant_upload is not None:
     with st.spinner("Comparing files..."):
         applicant_bytes = applicant_upload.read()
+        st.session_state.applicant_bytes = applicant_bytes
         common_all, error = compare_excels(applicant_bytes, master_path, st.session_state.blacklist)
         if error:
             st.error(error)
         else:
-            st.success("Comparison complete!")
-            st.dataframe(common_all, use_container_width=True)
-            
-            txt_content = generate_txt_output(common_all)
-            st.download_button(
-                label="Download Matches as .TXT",
-                data=txt_content,
-                file_name=f"{county}_LTHO_Matches.txt",
-                mime="text/plain"
-            )
-
-            # Second comparison: Address matches for M/R
-            st.subheader("Potential M/R Accounts")
+            st.session_state.common_all = common_all
             df1_orig = pd.read_excel(io.BytesIO(applicant_bytes), engine='openpyxl')
             mr_potentials, mr_error = compare_addresses(df1_orig, accounts_path, st.session_state.blacklist)
             if mr_error:
                 st.error(mr_error)
-            elif not mr_potentials.empty:
-                st.dataframe(mr_potentials, use_container_width=True)
-                
-                # Add to blacklist with checkboxes
-                with st.expander("Select Matching Accounts to Add to Blacklist"):
-                    selected_to_blacklist = []
-                    for idx, row in mr_potentials.iterrows():
-                        if st.checkbox(f"Blacklist {row['Matching Account']} (from {row['Applicant Address'][:30]}...)", key=f"add_cb_{idx}"):
-                            selected_to_blacklist.append(row['Matching Account'])
-                    if st.button("Add Selected to Blacklist"):
-                        if selected_to_blacklist:
-                            st.session_state.blacklist.update(selected_to_blacklist)
-                            save_blacklist(county, st.session_state.blacklist)
-                            st.success(f"Added {len(selected_to_blacklist)} accounts to blacklist.")
-                            st.rerun()
-                        else:
-                            st.warning("No accounts selected.")
             else:
-                st.info("No potential M/R address matches found.")
+                st.session_state.mr_potentials = mr_potentials
+            st.success("Comparison complete!")
+            st.rerun()
+
+# Display results if available in session state
+if st.session_state.common_all is not None and not st.session_state.common_all.empty:
+    st.dataframe(st.session_state.common_all, use_container_width=True)
+    
+    txt_content = generate_txt_output(st.session_state.common_all)
+    st.download_button(
+        label="Download Matches as .TXT",
+        data=txt_content,
+        file_name=f"{county}_LTHO_Matches.txt",
+        mime="text/plain"
+    )
+
+    # Second comparison: Address matches for M/R
+    if st.session_state.mr_potentials is not None and not st.session_state.mr_potentials.empty:
+        st.subheader("Potential M/R Accounts")
+        st.dataframe(st.session_state.mr_potentials, use_container_width=True)
+        
+        # Add to blacklist with radio buttons (single selection)
+        with st.expander("Select Matching Account to Add to Blacklist"):
+            options = ["None"] + [f"{row['Matching Account']} (from {row['Applicant Address'][:30]}{'...' if len(row['Applicant Address']) > 30 else ''})" for _, row in st.session_state.mr_potentials.iterrows()]
+            selected_option = st.radio("Choose one to blacklist:", options, key="blacklist_radio")
+            if selected_option != "None":
+                # Extract account from selected option
+                selected_account = selected_option.split(' ')[0]  # Assuming account is first word
+                if st.button("Add Selected to Blacklist"):
+                    st.session_state.blacklist.add(selected_account)
+                    save_blacklist(county, st.session_state.blacklist)
+                    st.success(f"Added {selected_account} to blacklist.")
+                    st.session_state.common_all = None  # Clear results to force re-comparison
+                    st.session_state.mr_potentials = None
+                    st.rerun()
+else:
+    if st.button("Clear Results", type="secondary"):
+        st.session_state.common_all = None
+        st.session_state.mr_potentials = None
+        st.rerun()
 
 # Blacklist Management
 with st.expander("Blacklist Management", expanded=False):
@@ -429,6 +457,8 @@ with st.expander("Blacklist Management", expanded=False):
                 st.session_state.blacklist.discard(acc)
             save_blacklist(county, st.session_state.blacklist)
             st.success(f"Removed {len(selected_to_remove)} accounts from blacklist.")
+            st.session_state.common_all = None  # Clear results
+            st.session_state.mr_potentials = None
             st.rerun()
     else:
         st.info("Blacklist is empty.")
