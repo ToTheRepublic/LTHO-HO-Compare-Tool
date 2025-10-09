@@ -268,25 +268,70 @@ def extract_pdf(pdf_path, selected_res):
     except Exception as e:
         return (None, f"Error extracting PDF: {str(e)}")
 
+# User preference functions (server-side persistence)
+def get_user_prefs_path():
+    username = os.environ.get('REMOTE_USER', 'anonymous').strip().replace(' ', '_')
+    prefs_dir = 'user_prefs'
+    os.makedirs(prefs_dir, exist_ok=True)
+    return os.path.join(prefs_dir, f"{username}_prefs.json")
+
+def load_user_pref(key: str, default=None):
+    prefs_path = get_user_prefs_path()
+    if os.path.exists(prefs_path):
+        with open(prefs_path, 'r') as f:
+            prefs = json.load(f)
+            return prefs.get(key, default)
+    return default
+
+def save_user_pref(key: str, value):
+    prefs_path = get_user_prefs_path()
+    prefs = {}
+    if os.path.exists(prefs_path):
+        with open(prefs_path, 'r') as f:
+            prefs = json.load(f)
+    prefs[key] = value
+    with open(prefs_path, 'w') as f:
+        json.dump(prefs, f)
+
+# Helper to get county from query params (for sharing)
+def get_persistent_county() -> Optional[str]:
+    query_params = st.query_params
+    county_param = query_params.get("county", [None])[0]
+    if county_param and county_param in WY_COUNTIES:
+        return county_param
+    return None
+
 # Page config
 st.set_page_config(page_title="WY County Document Search", layout="wide")
 
-# Back to Home button
+# Back to Home button (styled, same tab) - Fixed hover with CSS
 st.markdown(
     """
-    <a href="https://assessortools.com" target="_self" rel="noopener noreferrer" style="
+    <style>
+    .back-to-home {
         text-decoration: none;
         display: inline-block;
         padding: 8px 16px;
         background-color: #3B82F6;
-        color: white;
+        color: white !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
         border-radius: 6px;
         border: 1px solid #3B82F6;
-        font-weight: 500;
         cursor: pointer;
         margin-bottom: 20px;
-    " onmouseover="this.style.backgroundColor='#2563EB'; this.style.borderColor='#2563EB';" 
-       onmouseout="this.style.backgroundColor='#3B82F6'; this.style.borderColor='#3B82F6';">
+        transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.1);  /* Subtle shadow for readability */
+        opacity: 1 !important;  /* Prevent fading */
+    }
+    .back-to-home:hover {
+        background-color: #2563EB;
+        border-color: #2563EB;
+        color: white !important;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.2);  /* Slightly stronger on hover */
+    }
+    </style>
+    <a href="https://assessortools.com" target="_self" rel="noopener noreferrer" class="back-to-home">
         ← Back to Home
     </a>
     """,
@@ -294,21 +339,37 @@ st.markdown(
 )
 
 # Initialize session state
-if 'county' not in st.session_state:
-    st.session_state.county = None
+if 'last_county' not in st.session_state:
+    st.session_state.last_county = None
 if 'docs_indexed' not in st.session_state:
     st.session_state.docs_indexed = {}
 if 'search_results' not in st.session_state:
     st.session_state.search_results = None
 if 'selected_res' not in st.session_state:
     st.session_state.selected_res = None
+if 'clear_password' not in st.session_state:
+    st.session_state.clear_password = ""
+
+# Determine default county: user pref > URL param > logged-in county > first
+user_pref_county = load_user_pref('last_county')
+url_county = get_persistent_county()
+logged_in_county = os.environ.get('REMOTE_USER', '').strip()
+default_county = user_pref_county if user_pref_county in WY_COUNTIES else \
+                url_county if url_county else \
+                logged_in_county if logged_in_county in WY_COUNTIES else WY_COUNTIES[0]
 
 # County selection (simple dropdown, persists in session)
 st.subheader("Select Your County")
-county = st.selectbox("Choose a county:", WY_COUNTIES, index=WY_COUNTIES.index(st.session_state.county) if st.session_state.county in WY_COUNTIES else 0)
-if county != st.session_state.county:
-    st.session_state.county = county
+default_index = WY_COUNTIES.index(default_county)
+county = st.selectbox("Choose a county:", WY_COUNTIES, index=default_index)
+if county != st.session_state.last_county:
+    st.session_state.last_county = county
+    save_user_pref('last_county', county)  # Save to server-side prefs
+    if url_county != county:  # Update URL only if different (for sharing)
+        st.query_params["county"] = [county]
     st.session_state.docs_indexed = {}  # Reset indexing on county change
+    st.session_state.search_results = None
+    st.session_state.selected_res = None
     st.rerun()
 
 if not county:
@@ -334,6 +395,37 @@ if county and county_dir:
     for doc_type in DOC_TYPES:
         index_file = get_doc_path(county_dir, doc_type, "json")
         st.session_state.docs_indexed[doc_type] = os.path.exists(index_file)
+
+# Sidebar: Instructions & Reset (with collapsible content and protected clear button)
+with st.sidebar:
+    with st.expander("Instructions & Reset", expanded=False):
+        st.header("Instructions")
+        st.markdown("""
+        - Select your county above (remembers your last choice for next time).
+        - Go to Settings tab to upload the 3 PDFs and 3 Excel files for your county.
+        - Click "Index" for each document type in Settings.
+        - Back to Search tab: Enter query and hit Enter or click Search to query and select from matches to download extracted PDFs.
+        - Files are stored server-side per county for reuse.
+        """)
+        
+        # Protected Clear Session button
+        st.subheader("Reset Session")
+        clear_password = st.text_input("Enter password to confirm:", type="password", value=st.session_state.clear_password, key="clear_pwd_input")
+        st.session_state.clear_password = clear_password
+        
+        if st.button("Clear Session (Forget County)", disabled=not clear_password):
+            if clear_password == "reset123":  # Change this to your desired password
+                save_user_pref('last_county', None)  # Clear user pref
+                st.query_params.clear()  # Clears URL params
+                for key in list(st.session_state.keys()):
+                    if key != 'clear_password':  # Preserve password input state
+                        del st.session_state[key]
+                st.session_state.last_county = None
+                st.success("Session cleared! Reloading...")
+                st.rerun()
+            else:
+                st.error("Incorrect password. Try again.")
+                st.session_state.clear_password = ""  # Clear input on error
 
 # Tabs
 tab1, tab2 = st.tabs(["Search", "Settings"])
@@ -475,14 +567,3 @@ with tab2:
         index_file = get_doc_path(county_dir, doc_type, "json")
         status = "✅ Indexed" if os.path.exists(index_file) else "❌ Not Indexed"
         st.write(f"{doc_type}: {status}")
-
-# Sidebar Instructions
-with st.sidebar:
-    st.header("Instructions")
-    st.markdown("""
-    - Select your county above.
-    - Go to Settings tab to upload the 3 PDFs and 3 Excel files for your county.
-    - Click "Index" for each document type in Settings.
-    - Back to Search tab: Enter query and hit Enter or click Search to query and select from matches to download extracted PDFs.
-    - Files are stored server-side per county for reuse.
-    """)
