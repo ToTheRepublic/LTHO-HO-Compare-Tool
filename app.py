@@ -60,7 +60,12 @@ def load_blacklist(county):
     blacklist_path = f"master_lists/{county}/blacklist.json"
     if os.path.exists(blacklist_path):
         with open(blacklist_path, 'r') as f:
-            return json.load(f)
+            data = json.load(f)
+            if isinstance(data, list) and data and isinstance(data[0], str):
+                # Migrate old format: list of strings to list of dicts
+                return [{'account': acc, 'applicant_address': '', 'norm_addr': ''} for acc in data]
+            else:
+                return data
     return []
 
 def save_blacklist(county, blacklist_list):
@@ -96,7 +101,7 @@ def normalize_address(addr):
     return addr
 
 def compare_excels(df1_bytes, df2_path, blacklist_list):
-    blacklist_accounts = {d['account'] for d in blacklist_list if 'account' in d}
+    blacklist_accounts = {d['account'] for d in blacklist_list if isinstance(d, dict) and 'account' in d}
     try:
         df1_orig = pd.read_excel(io.BytesIO(df1_bytes), engine='openpyxl')
         df2_orig = pd.read_excel(df2_path, engine='openpyxl')
@@ -164,7 +169,7 @@ def compare_excels(df1_bytes, df2_path, blacklist_list):
         return None, f"Failed to compare files: {str(e)}"
 
 def compare_addresses(df1_orig, accounts_path, blacklist_list):
-    blacklist_norms = {d['norm_addr'] for d in blacklist_list if 'norm_addr' in d}
+    blacklist_norms = {d['norm_addr'] for d in blacklist_list if isinstance(d, dict) and 'norm_addr' in d}
     try:
         accounts_df = pd.read_excel(accounts_path, engine='openpyxl')
         if accounts_df.empty:
@@ -174,7 +179,7 @@ def compare_addresses(df1_orig, accounts_path, blacklist_list):
         if not account_col:
             return None, "Could not identify account number column in accounts file."
 
-        blacklist_accounts = {d['account'] for d in blacklist_list if 'account' in d}
+        blacklist_accounts = {d['account'] for d in blacklist_list if isinstance(d, dict) and 'account' in d}
         # Filter for M and R accounts
         mr_df = accounts_df[accounts_df[account_col].astype(str).str.match(r'^[MR]\d{7}$', na=False)].copy()
         # Filter out blacklisted accounts
@@ -516,7 +521,14 @@ if st.session_state.comparison_results is not None:
 with st.expander("Blacklist Management", expanded=False):
     st.write(f"Current Blacklist ({len(st.session_state.blacklist)} entries):")
     if st.session_state.blacklist:
-        blacklist_display = [f"{d['account']} - {d['applicant_address']}" for d in st.session_state.blacklist]
+        blacklist_display = []
+        for d in st.session_state.blacklist:
+            if isinstance(d, dict):
+                addr = d.get('applicant_address', '')
+                display = f"{d['account']} - {addr}"
+            else:
+                display = str(d)
+            blacklist_display.append(display)
         st.write(blacklist_display)
         selected_to_remove = st.multiselect("Select Entries to Remove from Blacklist:", blacklist_display, key="remove_blacklist")
         if st.button("Remove Selected from Blacklist"):
