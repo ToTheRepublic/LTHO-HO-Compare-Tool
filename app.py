@@ -338,6 +338,8 @@ st.markdown(
 )
 
 # Initialize session state (excluding county, which is now persistent via query params)
+if 'last_county' not in st.session_state:
+    st.session_state.last_county = None
 if 'master_uploaded' not in st.session_state:
     st.session_state.master_uploaded = False
 if 'accounts_uploaded' not in st.session_state:
@@ -351,7 +353,7 @@ if 'mr_potentials' not in st.session_state:
 if 'applicant_bytes' not in st.session_state:
     st.session_state.applicant_bytes = None
 
-# Get persistent county
+# Get persistent county from query params
 persistent_county = get_persistent_county()
 
 st.subheader("Select Your County")
@@ -359,8 +361,9 @@ st.subheader("Select Your County")
 default_index = WY_COUNTIES.index(persistent_county) if persistent_county else 0
 county = st.selectbox("Choose a county:", WY_COUNTIES, index=default_index, key="county_select")
 
-# Update query params if county changed
-if county != persistent_county:
+# Only update query params and rerun if the selectbox changed from our last known state (prevents loop)
+if county != st.session_state.last_county:
+    st.session_state.last_county = county
     st.query_params["county"] = [county]
     # Reset session state on county change
     st.session_state.master_uploaded = False
@@ -381,8 +384,9 @@ blacklist_path = f"master_lists/{county}/blacklist.json"
 master_dir = os.path.dirname(master_path)
 os.makedirs(master_dir, exist_ok=True)  # Create folder if needed
 
-# Load blacklist into session
-st.session_state.blacklist = load_blacklist(county)
+# Load blacklist into session (if not already set from change)
+if not st.session_state.blacklist:
+    st.session_state.blacklist = load_blacklist(county)
 
 # Tabs
 tab1, tab2 = st.tabs(["Compare", "Settings"])
@@ -670,4 +674,5 @@ with st.sidebar:
         st.query_params.clear()  # Clears URL params, including county
         for key in list(st.session_state.keys()):
             del st.session_state[key]
-        st.rerun()
+        st.session_state.last_county = None
+        # Will naturally refresh on next load
