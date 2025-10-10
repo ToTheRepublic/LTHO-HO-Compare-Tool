@@ -48,8 +48,7 @@ SUBDOMAIN_TO_COUNTY = {
     'weston': 'Weston'
 }
 
-# Detect subdomain via JS and set county (runs once per session)
-# @st.cache_data
+# Detect subdomain via JS and set county (no cache - called once per run)
 def detect_county():
     try:
         # JS expression to get subdomain (first part of hostname) - no 'return' needed
@@ -62,7 +61,24 @@ def detect_county():
         # Fallback if JS fails
         return WY_COUNTIES[0]
 
-county = detect_county()
+# Early session state init for county (avoids flash)
+if 'detected_county' not in st.session_state:
+    st.session_state.detected_county = None
+
+# Set generic placeholder title first (before detection)
+st.set_page_config(page_title="County Document Search Tool", layout="wide")  # Generic, no county yet
+st.title("County Document Search Tool")  # Generic title
+
+# Detect and store county
+if st.session_state.detected_county is None:
+    st.session_state.detected_county = detect_county()
+    st.rerun()  # Immediate rerun to apply county-specific title/config
+
+county = st.session_state.detected_county
+
+# Now set county-specific title/config on rerun (overrides placeholder)
+st.set_page_config(page_title=f"Document Search Tool - {county} County", layout="wide")
+st.title(f"County Document Search Tool - {county} County")
 
 # Document types
 DOC_TYPES = ["Notice of Value", "Declaration", "Tax Notice"]
