@@ -518,13 +518,27 @@ with tab1:
                         mime="application/pdf"
                     )
 
-                    # Inline PDF Viewer
+                    # Inline PDF Viewer with dynamic height
                     st.markdown("### Full PDF Preview:")
                     try:
-                        pdf_viewer(pdf_data, height=800)
+                        # Calc total height to fit content (no inner scroll)
+                        doc = fitz.open(stream=pdf_data, filetype="pdf")
+                        target_width = 800  # px; adjust for your layout
+                        total_height = 0
+                        for page in doc:
+                            rect = page.rect
+                            if rect.width > 0:  # Avoid div0
+                                scaled_height = rect.height * (target_width / rect.width)
+                                total_height += scaled_height + 20  # +20px margin between pages
+                        doc.close()
+            
+                        # Cap at viewport-friendly max (e.g., 1200px) to avoid overflow
+                        viewer_height = min(total_height, 1200)
+                        
+                        pdf_viewer(pdf_data, height=viewer_height, width=target_width)
                     except Exception as e:
                         st.warning(f"Could not render PDF viewer: {e}. Falling back to first-page image preview.")
-                        # Fallback image code
+                        # Fallback image code (unchanged)
                         doc = fitz.open(stream=pdf_data, filetype="pdf")
                         if len(doc) > 0:
                             page = doc.load_page(0)
