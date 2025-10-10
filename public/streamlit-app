@@ -1,7 +1,41 @@
-# HTTPS Server Block (main)
+# HTTPS Server Block for Root Domain (assessortools.com) 
 server {
-    listen 443 ssl;
-    http2 on;
+    listen 443 ssl http2;
+    server_name assessortools.com www.assessortools.com;
+    
+    client_max_body_size 200M;  # Allows up to 200MB—adjust if your PDFs are larger (e.g., 500M)
+    
+    # SSL (managed by Certbot)
+    ssl_certificate /etc/letsencrypt/live/assessortools.com/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/assessortools.com/privkey.pem; # managed by Certbot
+    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+    
+    # Redirect www to non-www
+    if ($host = 'www.assessortools.com') {
+        return 301 https://assessortools.com$request_uri;
+    }
+    
+    # Landing page at root (serves county-landing.html)
+    location / {
+        root /var/www/html;
+        index county-landing.html index.html index.htm;
+        try_files $uri $uri/ =404;
+    }
+    
+    # Redirect tool paths back to county selection (ensures county is selected first)
+    location /ltho/ {
+        return 302 https://assessortools.com/;
+    }
+    
+    location /docs/ {
+        return 302 https://assessortools.com/;
+    }
+}
+
+# HTTPS Server Block for Subdomains (*.assessortools.com)
+server {
+    listen 443 ssl http2;
     server_name ~^(?<subdomain>.+)\.assessortools\.com$;
     
     client_max_body_size 200M;  # Allows up to 200MB—adjust if your PDFs are larger (e.g., 500M)
@@ -12,14 +46,14 @@ server {
     include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
     
-    # Landing page at root
+    # Serves index.html directly for subdomains (county-specific tools hub)
     location / {
         root /var/www/html;
         index index.html index.htm;
         try_files $uri $uri/ =404;
     }
     
-    # LTHO Tool (/ltho proxies to port 8501) - Mirror this
+    # LTHO Tool (/ltho proxies to port 8501)
     location /ltho/ {
         proxy_pass http://127.0.0.1:8501/;
         proxy_http_version 1.1;
@@ -42,25 +76,15 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
-
-
-    # Optional: Catch-all for other paths (e.g., if you add more later; proxies to LTHO as default)
-    # location / {
-    #     proxy_pass http://localhost:8501;
-    #     proxy_http_version 1.1;
-    #     proxy_set_header Upgrade $http_upgrade;
-    #     proxy_set_header Connection "upgrade";
-    #     proxy_set_header Host $host;
-    #     proxy_set_header X-Real-IP $remote_addr;
-    #     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    #     proxy_set_header X-Forwarded-Proto $scheme;
-    # }
 }
 
 # HTTP Redirect Block (managed by Certbot)
 server {
-    if ($host = assessortools.com) {
+    if ($host = 'assessortools.com') {
         return 301 https://$host$request_uri;
+    } # managed by Certbot
+    if ($host = 'www.assessortools.com') {
+        return 301 https://assessortools.com$request_uri;
     } # managed by Certbot
     listen 80;
     server_name assessortools.com www.assessortools.com;
