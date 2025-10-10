@@ -55,33 +55,7 @@ def get_county_from_subdomain():
         county = SUBDOMAIN_TO_COUNTY[subdomain]
         print(f"DEBUG: Matched county = '{county}'")  # Console debug
         return county
-    
-    # If not set or invalid, trigger JS to extract and set subdomain
-    st.info("Detecting your county from URL...")
-    html_code = """
-    <script>
-    (function() {
-        try {
-            var fullHost = window.parent.location.host.toLowerCase();
-            var subdomain = fullHost.replace(/www\\./g, '').replace('assessortools.com', '').replace(/^[\\.]/, '').replace(/[.]$/, '').trim();
-            console.log('Extracted subdomain from host "' + fullHost + '": ' + subdomain);
-            if (subdomain && subdomain !== fullHost && subdomain.length > 0) {
-                var url = new URL(window.parent.location);
-                if (!url.searchParams.has('subdomain')) {
-                    url.searchParams.set('subdomain', subdomain);
-                    window.parent.location = url.toString();
-                }
-            } else {
-                console.error('Could not extract valid subdomain');
-            }
-        } catch (e) {
-            console.error('Error extracting subdomain: ' + e);
-        }
-    })();
-    </script>
-    """
-    components.html(html_code, height=0)
-    st.stop()
+    return None
 
 # Document types
 DOC_TYPES = ["Notice of Value", "Declaration", "Tax Notice"]
@@ -362,6 +336,8 @@ st.set_page_config(page_title="WY County Document Search", layout="wide")
 
 # Determine county from subdomain
 county = get_county_from_subdomain()
+if county is None:
+    county = st.selectbox("Select County:", WY_COUNTIES)
 st.caption(f"County: {county}")
 
 # Back to Home button (styled, same tab) - Fixed hover with CSS
