@@ -60,6 +60,7 @@
         .header {
             text-align: center;
             margin-bottom: 40px;
+            position: relative;
         }
         .warning {
             background-color: #F59E0B;
@@ -69,17 +70,56 @@
             margin: 10px 0;
             font-weight: 500;
         }
+        .toggle-btn {
+            background: none;
+            border: none;
+            color: #FFFFFF;
+            font-size: 1.5em;
+            cursor: pointer;
+            position: absolute;
+            top: 0;
+            right: 0;
+        }
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: -250px;
+            width: 250px;
+            height: 100vh;
+            background-color: #1F2937;
+            transition: left 0.3s ease;
+            z-index: 1000;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .sidebar.open {
+            left: 0;
+        }
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 999;
+            display: none;
+        }
+        .overlay.open {
+            display: block;
+        }
         .back-to-counties {
-            display: inline-block;
+            display: block;
             background-color: #6B7280;
             color: #FFFFFF;
-            padding: 10px 16px;
+            padding: 12px 16px;
             text-decoration: none;
             border-radius: 6px;
             font-weight: 500;
             margin-bottom: 20px;
             transition: background-color 0.2s;
             border: 1px solid #6B7280;
+            text-align: center;
         }
         .back-to-counties:hover {
             background-color: #4B5563;
@@ -88,14 +128,19 @@
     </style>
 </head>
 <body>
-    <a href="https://assessortools.com" class="back-to-counties">
-        ← Back to County Selection
-    </a>
-    
     <div class="header">
         <h1>Assessor Tools</h1>
         <p>Your hub for Wyoming county assessment utilities</p>
+        <button class="toggle-btn" onclick="toggleSidebar()">☰</button>
     </div>
+    
+    <div id="sidebar" class="sidebar">
+        <a href="https://assessortools.com" class="back-to-counties">
+            ← Back to County Selection
+        </a>
+    </div>
+    
+    <div id="overlay" class="overlay" onclick="toggleSidebar()"></div>
     
     <div class="auth-note">
         <strong>Login Required:</strong> Use your county name as username and password (e.g., Username: "Hot Springs", Password: "HotSprings1!"). Credentials persist in your browser.
@@ -118,5 +163,14 @@
         <a href="/newtool">Launch Tool</a>
     </div>
     -->
+    
+    <script>
+        function toggleSidebar() {
+            var sidebar = document.getElementById('sidebar');
+            var overlay = document.getElementById('overlay');
+            sidebar.classList.toggle('open');
+            overlay.classList.toggle('open');
+        }
+    </script>
 </body>
 </html>
