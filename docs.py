@@ -352,9 +352,6 @@ def save_user_pref(key: str, value):
     with open(prefs_path, 'w') as f:
         json.dump(prefs, f)
 
-# Page config
-st.set_page_config(page_title=f"WY County Document Search - {county} County", layout="wide")
-
 # Auto-set session state for county
 if 'last_county' not in st.session_state:
     st.session_state.last_county = county
