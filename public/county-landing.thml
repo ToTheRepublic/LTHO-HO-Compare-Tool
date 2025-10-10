@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Assessor Tools - Select Your Wyoming County</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0F1117;
+            color: #FFFFFF;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 {
+            color: #FFFFFF;
+            font-size: 2.5em;
+            font-weight: 600;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        p {
+            color: #D1D5DB;
+            font-size: 1.1em;
+            margin-bottom: 40px;
+            text-align: center;
+        }
+        .counties-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .county-link {
+            background-color: #1F2937;
+            border: 1px solid #374151;
+            padding: 20px;
+            border-radius: 8px;
+            text-decoration: none;
+            color: #FFFFFF;
+            font-weight: 500;
+            text-align: center;
+            transition: background-color 0.2s, border-color 0.2s;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        .county-link:hover {
+            background-color: #3B82F6;
+            border-color: #3B82F6;
+            color: #FFFFFF;
+        }
+        .county-name {
+            font-size: 1.2em;
+            margin-bottom: 5px;
+        }
+        .auth-note {
+            background-color: #374151;
+            color: #D1D5DB;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+            text-align: center;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <h1>Assessor Tools</h1>
+    <p>Select your Wyoming county to access assessment utilities.</p>
+    
+    <div class="auth-note">
+        <strong>Login Required:</strong> Use your county name as username and password (e.g., Username: "Albany", Password: "Albany1!"). Credentials persist in your browser.
+    </div>
+
+    <div class="counties-grid">
+        <!-- Wyoming counties from your code; add more rows as needed -->
+        <a href="https://albany.assessortools.com" class="county-link">
+            <div class="county-name">Albany County</div>
+        </a>
+        <a href="https://big-horn.assessortools.com" class="county-link">
+            <div class="county-name">Big Horn County</div>
+        </a>
+        <a href="https://campbell.assessortools.com" class="county-link">
+            <div class="county-name">Campbell County</div>
+        </a>
+        <a href="https://carbon.assessortools.com" class="county-link">
+            <div class="county-name">Carbon County</div>
+        </a>
+        <a href="https://converse.assessortools.com" class="county-link">
+            <div class="county-name">Converse County</div>
+        </a>
+        <a href="https://crook.assessortools.com" class="county-link">
+            <div class="county-name">Crook County</div>
+        </a>
+        <a href="https://fremont.assessortools.com" class="county-link">
+            <div class="county-name">Fremont County</div>
+        </a>
+        <a href="https://goshen.assessortools.com" class="county-link">
+            <div class="county-name">Goshen County</div>
+        </a>
+        <a href="https://hot-springs.assessortools.com" class="county-link">
+            <div class="county-name">Hot Springs County</div>
+        </a>
+        <a href="https://johnson.assessortools.com" class="county-link">
+            <div class="county-name">Johnson County</div>
+        </a>
+        <a href="https://laramie.assessortools.com" class="county-link">
+            <div class="county-name">Laramie County</div>
+        </a>
+        <a href="https://lincoln.assessortools.com" class="county-link">
+            <div class="county-name">Lincoln County</div>
+        </a>
+        <a href="https://natrona.assessortools.com" class="county-link">
+            <div class="county-name">Natrona County</div>
+        </a>
+        <a href="https://niobrara.assessortools.com" class="county-link">
+            <div class="county-name">Niobrara County</div>
+        </a>
+        <a href="https://park.assessortools.com" class="county-link">
+            <div class="county-name">Park County</div>
+        </a>
+        <a href="https://platte.assessortools.com" class="county-link">
+            <div class="county-name">Platte County</div>
+        </a>
+        <a href="https://sheridan.assessortools.com" class="county-link">
+            <div class="county-name">Sheridan County</div>
+        </a>
+        <a href="https://sublette.assessortools.com" class="county-link">
+            <div class="county-name">Sublette County</div>
+        </a>
+        <a href="https://sweetwater.assessortools.com" class="county-link">
+            <div class="county-name">Sweetwater County</div>
+        </a>
+        <a href="https://teton.assessortools.com" class="county-link">
+            <div class="county-name">Teton County</div>
+        </a>
+        <a href="https://uinta.assessortools.com" class="county-link">
+            <div class="county-name">Uinta County</div>
+        </a>
+        <a href="https://washakie.assessortools.com" class="county-link">
+            <div class="county-name">Washakie County</div>
+        </a>
+        <a href="https://weston.assessortools.com" class="county-link">
+            <div class="county-name">Weston County</div>
+        </a>
+    </div>
+</body>
+</html>
