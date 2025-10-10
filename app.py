@@ -53,7 +53,7 @@ def detect_county():
         return county
     except:
         # Fallback if JS fails
-        return WY_COUNTIES[0]
+        return ""#WY_COUNTIES[0]
 
 county = detect_county()
 
