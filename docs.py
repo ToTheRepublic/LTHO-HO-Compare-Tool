@@ -61,24 +61,23 @@ def detect_county():
         # Fallback if JS fails
         return WY_COUNTIES[0]
 
-# Early session state init for county (avoids flash)
+# Early session state init for county and rendering flag
 if 'detected_county' not in st.session_state:
-    st.session_state.detected_county = None
+    st.session_state.detected_county = detect_county()  # Run detection once (blocks until JS resolves)
+if 'title_rendered' not in st.session_state:
+    st.session_state.title_rendered = False
 
-# Set generic placeholder title first (before detection)
-st.set_page_config(page_title="County Document Search Tool", layout="wide")  # Generic, no county yet
-st.title("County Document Search Tool")  # Generic title
+county = st.session_state.detected_county or WY_COUNTIES[0]  # Safe fallback
 
-# Detect and store county
-if st.session_state.detected_county is None:
-    st.session_state.detected_county = detect_county()
-    st.rerun()  # Immediate rerun to apply county-specific title/config
+# Render title/config only once (on first run)
+if not st.session_state.title_rendered:
+    st.set_page_config(page_title=f"Excel Compare Tool - {county} County", layout="wide")
+    st.title(f"Wyoming County Excel Comparison Tool - {county} County")
+    st.session_state.title_rendered = True
 
-county = st.session_state.detected_county
-
-# Now set county-specific title/config on rerun (overrides placeholder)
-st.set_page_config(page_title=f"Document Search Tool - {county} County", layout="wide")
-st.title(f"County Document Search Tool - {county} County")
+# Auto-set session state for county
+if 'last_county' not in st.session_state:
+    st.session_state.last_county = county
 
 # Document types
 DOC_TYPES = ["Notice of Value", "Declaration", "Tax Notice"]
