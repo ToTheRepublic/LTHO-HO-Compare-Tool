@@ -531,9 +531,9 @@ with tab1:
                                 scaled_height = rect.height * (target_width / rect.width)
                                 total_height += scaled_height + 20  # +20px margin between pages
                         doc.close()
-            
-                        # Cap at viewport-friendly max (e.g., 1200px) to avoid overflow
-                        viewer_height = min(total_height, 1200)
+                        
+                        # Cap at viewport-friendly max (e.g., 1200px) to avoid overflow; ensure int
+                        viewer_height = int(min(max(total_height, 200), 1200))  # Floor 200px, int-cast
                         
                         pdf_viewer(pdf_data, height=viewer_height, width=target_width)
                     except Exception as e:
