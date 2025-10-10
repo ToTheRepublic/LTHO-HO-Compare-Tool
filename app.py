@@ -55,6 +55,8 @@ def detect_county():
         # Fallback if JS fails
         return WY_COUNTIES[0]
 
+county = detect_county()
+
 # Early session state init for county (avoids flash)
 if 'detected_county' not in st.session_state:
     st.session_state.detected_county = None
@@ -64,7 +66,7 @@ if st.session_state.detected_county is None:
     st.session_state.detected_county = detect_county()
     st.rerun()  # Immediate rerun to apply county-specific title/config
 
-county = st.session_state.detected_county
+# county = st.session_state.detected_county
 
 # Now set county-specific title/config on rerun (overrides placeholder)
 st.set_page_config(page_title=f"LTHO-HO Compare Tool - {county} County", layout="wide")
