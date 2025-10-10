@@ -48,20 +48,39 @@ SUBDOMAIN_TO_COUNTY = {
 }
 
 def get_county_from_subdomain():
-    host = os.environ.get('HTTP_HOST', '').lower()
-    print(f"DEBUG: HTTP_HOST = '{host}'")  # Console debug
-    st.write(f"DEBUG: HTTP_HOST = '{host}'")  # Visible in app
-    if 'assessortools.com' in host:
-        subdomain = host.replace('assessortools.com', '').replace('www.', '').strip('.')
-        print(f"DEBUG: Extracted subdomain = '{subdomain}'")  # Console debug
-        st.write(f"DEBUG: Extracted subdomain = '{subdomain}'")  # Visible in app
-        county = SUBDOMAIN_TO_COUNTY.get(subdomain)
-        if county and county in WY_COUNTIES:
-            print(f"DEBUG: Matched county = '{county}'")  # Console debug
-            return county
-    st.error("Invalid subdomain. Please access via a valid county subdomain.")
+    query_params = st.query_params
+    subdomain = query_params.get("subdomain", [""])[0].lower().strip()
+    print(f"DEBUG: Query subdomain = '{subdomain}'")  # Console debug
+    if subdomain and subdomain in SUBDOMAIN_TO_COUNTY:
+        county = SUBDOMAIN_TO_COUNTY[subdomain]
+        print(f"DEBUG: Matched county = '{county}'")  # Console debug
+        return county
+    
+    # If not set or invalid, trigger JS to extract and set subdomain
+    st.info("Detecting your county from URL...")
+    html_code = """
+    <script>
+    (function() {
+        try {
+            var fullHost = window.parent.location.host.toLowerCase();
+            var subdomain = fullHost.replace(/www\\./g, '').replace('assessortools.com', '').replace(/^[\\.]/, '').replace(/[.]$/, '').trim();
+            console.log('Extracted subdomain from host "' + fullHost + '": ' + subdomain);
+            if (subdomain && subdomain !== fullHost && subdomain.length > 0) {
+                var url = new URL(window.parent.location);
+                url.searchParams.set('subdomain', subdomain);
+                window.parent.history.replaceState(null, null, url.toString());
+                // Streamlit will detect the query param change and rerun
+            } else {
+                console.error('Could not extract valid subdomain');
+            }
+        } catch (e) {
+            console.error('Error extracting subdomain: ' + e);
+        }
+    })();
+    </script>
+    """
+    components.v1.html(html_code, height=0)
     st.stop()
-    return WY_COUNTIES[0]
 
 # Document types
 DOC_TYPES = ["Notice of Value", "Declaration", "Tax Notice"]
