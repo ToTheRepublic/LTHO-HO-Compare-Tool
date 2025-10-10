@@ -14,6 +14,44 @@ WY_COUNTIES = [
     "Sheridan", "Sublette", "Sweetwater", "Teton", "Uinta", "Washakie", "Weston"
 ]
 
+# Subdomain to county mapping
+SUBDOMAIN_TO_COUNTY = {
+    'albany': 'Albany',
+    'big-horn': 'Big Horn',
+    'campbell': 'Campbell',
+    'carbon': 'Carbon',
+    'converse': 'Converse',
+    'crook': 'Crook',
+    'fremont': 'Fremont',
+    'goshen': 'Goshen',
+    'hot-springs': 'Hot Springs',
+    'johnson': 'Johnson',
+    'laramie': 'Laramie',
+    'lincoln': 'Lincoln',
+    'natrona': 'Natrona',
+    'niobrara': 'Niobrara',
+    'park': 'Park',
+    'platte': 'Platte',
+    'sheridan': 'Sheridan',
+    'sublette': 'Sublette',
+    'sweetwater': 'Sweetwater',
+    'teton': 'Teton',
+    'uinta': 'Uinta',
+    'washakie': 'Washakie',
+    'weston': 'Weston'
+}
+
+def get_county_from_subdomain():
+    host = os.environ.get('HTTP_HOST', '').lower()
+    if 'assessortools.com' in host:
+        subdomain = host.replace('assessortools.com', '').replace('www.', '').strip('.')
+        county = SUBDOMAIN_TO_COUNTY.get(subdomain)
+        if county and county in WY_COUNTIES:
+            return county
+    st.error("Invalid subdomain. Please access via a valid county subdomain.")
+    st.stop()
+    return WY_COUNTIES[0]
+
 # Your existing functions (unchanged)
 def parse_filer_name(full_name):
     full_name = full_name.strip()
@@ -292,15 +330,7 @@ def get_file_status(file_path):
         return f"✅ Exists ({size_mb:.1f} MB): {os.path.basename(file_path)}"
     return f"❌ Missing"
 
-# Helper to get county from query params (for sharing)
-def get_persistent_county() -> Optional[str]:
-    query_params = st.query_params
-    county_param = query_params.get("county", [None])[0]
-    if county_param and county_param in WY_COUNTIES:
-        return county_param
-    return None
-
-# User preference functions (server-side persistence)
+# User preference functions (server-side persistence) - retained but county not saved
 def get_user_prefs_path():
     username = os.environ.get('REMOTE_USER', 'anonymous').strip().replace(' ', '_')
     prefs_dir = 'user_prefs'
@@ -329,6 +359,10 @@ def save_user_pref(key: str, value):
 st.set_page_config(page_title="WY County Excel Comparison Tool", layout="wide")
 st.title("Wyoming County Excel Comparison Tool")
 
+# Determine county from subdomain
+county = get_county_from_subdomain()
+st.caption(f"County: {county}")
+
 # Back to Home button (styled, same tab) - Fixed hover with CSS
 st.markdown(
     """
@@ -356,7 +390,7 @@ st.markdown(
         text-shadow: 0 1px 2px rgba(0,0,0,0.2);  /* Slightly stronger on hover */
     }
     </style>
-    <a href="https://assessortools.com" target="_self" rel="noopener noreferrer" class="back-to-home">
+    <a href="/" target="_self" rel="noopener noreferrer" class="back-to-home">
         ← Back to Home
     </a>
     """,
@@ -364,170 +398,129 @@ st.markdown(
 )
 
 # Initialize session state
-if 'last_county' not in st.session_state:
-    st.session_state.last_county = None
-if 'master_uploaded' not in st.session_state:
-    st.session_state.master_uploaded = False
-if 'accounts_uploaded' not in st.session_state:
-    st.session_state.accounts_uploaded = False
-if 'blacklist' not in st.session_state:
-    st.session_state.blacklist = []
+if 'applicant_bytes' not in st.session_state:
+    st.session_state.applicant_bytes = None
 if 'comparison_results' not in st.session_state:
     st.session_state.comparison_results = None
 if 'mr_potentials' not in st.session_state:
     st.session_state.mr_potentials = None
-if 'applicant_bytes' not in st.session_state:
-    st.session_state.applicant_bytes = None
-
-# Determine default county: user pref > URL param > logged-in county > first
-user_pref_county = load_user_pref('last_county')
-url_county = get_persistent_county()
-logged_in_county = os.environ.get('REMOTE_USER', '').strip()
-default_county = user_pref_county if user_pref_county in WY_COUNTIES else \
-                url_county if url_county else \
-                logged_in_county if logged_in_county in WY_COUNTIES else WY_COUNTIES[0]
-
-st.subheader("Select Your County")
-default_index = WY_COUNTIES.index(default_county)
-county = st.selectbox("Choose a county:", WY_COUNTIES, index=default_index, key="county_select")
-
-# Detect change and save to user prefs (prevents loop via session state)
-if county != st.session_state.last_county:
-    st.session_state.last_county = county
-    save_user_pref('last_county', county)  # Save to server-side prefs
-    if url_county != county:  # Update URL only if different (for sharing)
-        st.query_params["county"] = [county]
-    # Reset session state on county change
-    st.session_state.master_uploaded = False
-    st.session_state.accounts_uploaded = False
+if 'blacklist' not in st.session_state:
     st.session_state.blacklist = load_blacklist(county)
-    st.session_state.comparison_results = None
-    st.session_state.mr_potentials = None
-    st.session_state.applicant_bytes = None
-    st.rerun()
 
-if not county:
-    st.warning("Please select a county to proceed.")
-    st.stop()
-
+# Master and accounts paths
 master_path = get_master_path(county)
 accounts_path = get_accounts_path(county)
-blacklist_path = f"master_lists/{county}/blacklist.json"
-master_dir = os.path.dirname(master_path)
-os.makedirs(master_dir, exist_ok=True)  # Create folder if needed
-
-# Load blacklist into session (if not already set from change)
-if not st.session_state.blacklist:
-    st.session_state.blacklist = load_blacklist(county)
 
 # Tabs
 tab1, tab2 = st.tabs(["Compare", "Settings"])
 
 with tab1:
-    # Applicant List Section (ephemeral)
-    st.subheader("HO Applicant List (Temporary - Session Only)")
-    applicant_upload = st.file_uploader("Upload Applicant List (Excel)", type=['xlsx', 'xls'], key="applicant_upload")
-
-    # Compare Button
-    if st.button("Compare Lists", type="primary") and applicant_upload is not None:
-        with st.spinner("Comparing files..."):
-            applicant_bytes = applicant_upload.read()
-            st.session_state.applicant_bytes = applicant_bytes
-            common_all, error = compare_excels(applicant_bytes, master_path, st.session_state.blacklist)
-            if error:
-                st.error(error)
-                st.session_state.comparison_results = None
-            else:
-                st.session_state.comparison_results = common_all
-
-                txt_content = generate_txt_output(common_all)
-                st.download_button(
-                    label="Download Matches as .TXT",
-                    data=txt_content,
-                    file_name=f"{county}_LTHO_Matches.txt",
-                    mime="text/plain"
-                )
-
-                # Second comparison: Address matches for M/R
-                df1_orig = pd.read_excel(io.BytesIO(applicant_bytes), engine='openpyxl')
+    st.subheader("Compare Applicant List to Master")
+    
+    # Applicant file upload
+    uploaded_applicant = st.file_uploader("Upload HO Applicant List (Excel)", type=['xlsx', 'xls'])
+    if uploaded_applicant is not None:
+        st.session_state.applicant_bytes = uploaded_applicant.getvalue()
+        st.success("Applicant file loaded!")
+        
+        # Auto-run comparison if files exist
+        if os.path.exists(master_path) and os.path.exists(accounts_path):
+            with st.spinner("Comparing files..."):
+                common_all, error = compare_excels(st.session_state.applicant_bytes, master_path, st.session_state.blacklist)
+                if error:
+                    st.error(error)
+                else:
+                    st.session_state.comparison_results = common_all
+                
+                df1_orig = pd.read_excel(io.BytesIO(st.session_state.applicant_bytes), engine='openpyxl')
                 mr_potentials, mr_error = compare_addresses(df1_orig, accounts_path, st.session_state.blacklist)
                 if mr_error:
                     st.error(mr_error)
-                    st.session_state.mr_potentials = None
                 else:
                     st.session_state.mr_potentials = mr_potentials
             st.rerun()
 
-    # Display results outside the button block
-    if st.session_state.comparison_results is not None:
-        st.success("Comparison complete!")
-        
-        st.subheader("HO Applicants w/ LTHO Last Tax Year")
-        if not st.session_state.comparison_results.empty:
-            st.dataframe(st.session_state.comparison_results, use_container_width=True)
-            
-            txt_content = generate_txt_output(st.session_state.comparison_results)
-            st.download_button(
-                label="Download Matches as .TXT",
-                data=txt_content,
-                file_name=f"{county}_LTHO_Matches.txt",
-                mime="text/plain"
-            )
-        else:
-            st.info("No HO applicants w/ LTHO last tax year found.")
-
-        # Second comparison: Address matches for M/R
-        st.subheader("Potential M/R Accounts")
-        if st.session_state.mr_potentials is not None:
-            if not st.session_state.mr_potentials.empty:
-                potentials_df = st.session_state.mr_potentials.copy()
-                potentials_df['Select'] = False
-                edited_df = st.data_editor(
-                    potentials_df,
-                    column_config={
-                        "Select": st.column_config.CheckboxColumn(
-                            "Select to Blacklist",
-                            help="Check to add this matching account to blacklist",
-                            default=False,
-                        )
-                    },
-                    use_container_width=True,
-                    hide_index=False,
-                )
-                
-                if st.button("Add Selected to Blacklist"):
-                    selected_rows = edited_df[edited_df['Select'] == True]
-                    selected_to_blacklist = []
-                    for _, row in selected_rows.iterrows():
-                        app_addr_norm = normalize_address(row['Applicant Address'])
-                        selected_to_blacklist.append({
-                            'applicant_account': row['Applicant Account'],
-                            'account': row['Matching Account'],
-                            'applicant_address': row['Applicant Address'],
-                            'norm_addr': app_addr_norm
-                        })
-                    if selected_to_blacklist:
-                        st.session_state.blacklist.extend(selected_to_blacklist)
-                        save_blacklist(county, st.session_state.blacklist)
-                        
-                        # Re-run comparisons with updated blacklist
-                        common_all, error = compare_excels(st.session_state.applicant_bytes, master_path, st.session_state.blacklist)
-                        if not error:
-                            st.session_state.comparison_results = common_all
-                        
-                        df1_orig = pd.read_excel(io.BytesIO(st.session_state.applicant_bytes), engine='openpyxl')
-                        mr_potentials, mr_error = compare_addresses(df1_orig, accounts_path, st.session_state.blacklist)
-                        if not mr_error:
-                            st.session_state.mr_potentials = mr_potentials
-                        
-                        st.success(f"Added {len(selected_to_blacklist)} accounts to blacklist. Results updated.")
-                        st.rerun()
-                    else:
-                        st.warning("No accounts selected.")
+    if st.button("Run Comparison", type="primary", disabled=st.session_state.applicant_bytes is None):
+        with st.spinner("Comparing files..."):
+            common_all, error = compare_excels(st.session_state.applicant_bytes, master_path, st.session_state.blacklist)
+            if error:
+                st.error(error)
             else:
-                st.info("No potential M/R address matches found.")
-        else:
-            st.info("No potential M/R address matches found.")
+                st.session_state.comparison_results = common_all
+            
+            df1_orig = pd.read_excel(io.BytesIO(st.session_state.applicant_bytes), engine='openpyxl')
+            mr_potentials, mr_error = compare_addresses(df1_orig, accounts_path, st.session_state.blacklist)
+            if mr_error:
+                st.error(mr_error)
+            else:
+                st.session_state.mr_potentials = mr_potentials
+        st.rerun()
+
+    # Display comparison results
+    if st.session_state.comparison_results is not None and not st.session_state.comparison_results.empty:
+        st.subheader("Matching Accounts Found")
+        st.dataframe(st.session_state.comparison_results, use_container_width=True)
+        
+        # Download TXT
+        txt_output = generate_txt_output(st.session_state.comparison_results)
+        st.download_button(
+            label="Download Matching Accounts (TXT)",
+            data=txt_output,
+            file_name=f"{county}_matching_accounts.txt",
+            mime="text/plain"
+        )
+    else:
+        st.info("No matching accounts found or comparison not run yet.")
+
+    # M/R Address Potentials
+    st.subheader("Potential M/R Address Matches")
+    if st.session_state.mr_potentials is not None and not st.session_state.mr_potentials.empty:
+        potentials_df = st.session_state.mr_potentials.copy()
+        potentials_df['Select'] = False
+        edited_df = st.data_editor(
+            potentials_df,
+            column_config={
+                "Select": st.column_config.CheckboxColumn(
+                    "Select to Blacklist",
+                    help="Check to add this matching account to blacklist",
+                    default=False,
+                )
+            },
+            use_container_width=True,
+            hide_index=False,
+        )
+        
+        if st.button("Add Selected to Blacklist"):
+            selected_rows = edited_df[edited_df['Select'] == True]
+            selected_to_blacklist = []
+            for _, row in selected_rows.iterrows():
+                app_addr_norm = normalize_address(row['Applicant Address'])
+                selected_to_blacklist.append({
+                    'applicant_account': row['Applicant Account'],
+                    'account': row['Matching Account'],
+                    'applicant_address': row['Applicant Address'],
+                    'norm_addr': app_addr_norm
+                })
+            if selected_to_blacklist:
+                st.session_state.blacklist.extend(selected_to_blacklist)
+                save_blacklist(county, st.session_state.blacklist)
+                
+                # Re-run comparisons with updated blacklist
+                common_all, error = compare_excels(st.session_state.applicant_bytes, master_path, st.session_state.blacklist)
+                if not error:
+                    st.session_state.comparison_results = common_all
+                
+                df1_orig = pd.read_excel(io.BytesIO(st.session_state.applicant_bytes), engine='openpyxl')
+                mr_potentials, mr_error = compare_addresses(df1_orig, accounts_path, st.session_state.blacklist)
+                if not mr_error:
+                    st.session_state.mr_potentials = mr_potentials
+                
+                st.success(f"Added {len(selected_to_blacklist)} accounts to blacklist. Results updated.")
+                st.rerun()
+            else:
+                st.warning("No accounts selected.")
+    else:
+        st.info("No potential M/R address matches found.")
 
     # Blacklist Management
     with st.expander("Blacklist Management", expanded=False):
@@ -619,7 +612,6 @@ with tab2:
                         df = pd.read_excel(uploaded_master, engine='openpyxl')
                         df.to_excel(master_path, index=False, engine='openpyxl')
                     st.success(f"Master list saved for {county} County!")
-                    st.session_state.master_uploaded = True
                     # Re-run comparison if applicant loaded
                     if st.session_state.applicant_bytes:
                         common_all, error = compare_excels(st.session_state.applicant_bytes, master_path, st.session_state.blacklist)
@@ -658,7 +650,6 @@ with tab2:
                         df = pd.read_excel(uploaded_accounts, engine='openpyxl')
                         df.to_excel(accounts_path, index=False, engine='openpyxl')
                     st.success(f"Accounts list saved for {county} County!")
-                    st.session_state.accounts_uploaded = True
                     # Re-run comparison if applicant loaded
                     if st.session_state.applicant_bytes:
                         common_all, error = compare_excels(st.session_state.applicant_bytes, master_path, st.session_state.blacklist)
@@ -697,7 +688,7 @@ with st.sidebar:
     with st.expander("Instructions & Reset", expanded=False):
         st.header("Instructions")
         st.markdown("""
-        - Select your county above (remembers your last choice for next time).
+        - Your county is automatically set based on the subdomain.
         - Go to Settings tab to upload the Master List and Accounts List for your county (persist on server).
         - Back to Compare tab: Upload applicant list, click Compare to query and view matches.
         - Use Blacklist Management in Compare tab to add/remove accounts to ignore in future comparisons.
@@ -712,14 +703,12 @@ with st.sidebar:
         clear_password = st.text_input("Enter password to confirm:", type="password", key="clear_pwd_input")
         st.session_state.clear_password = clear_password
         
-        if st.button("Clear Session (Forget County)", disabled=not clear_password):
+        if st.button("Clear Session", disabled=not clear_password):
             if clear_password == "admin":  # Change this to your desired password
-                save_user_pref('last_county', None)  # Clear user pref
-                st.query_params.clear()  # Clears URL params
                 for key in list(st.session_state.keys()):
                     if key != 'clear_password':  # Preserve password input state
                         del st.session_state[key]
-                st.session_state.last_county = None
+                st.session_state.clear_password = ""
                 st.success("Session cleared! Reloading...")
                 st.rerun()
             else:

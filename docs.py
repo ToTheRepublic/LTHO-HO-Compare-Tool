@@ -20,6 +20,44 @@ WY_COUNTIES = [
     "Sheridan", "Sublette", "Sweetwater", "Teton", "Uinta", "Washakie", "Weston"
 ]
 
+# Subdomain to county mapping
+SUBDOMAIN_TO_COUNTY = {
+    'albany': 'Albany',
+    'big-horn': 'Big Horn',
+    'campbell': 'Campbell',
+    'carbon': 'Carbon',
+    'converse': 'Converse',
+    'crook': 'Crook',
+    'fremont': 'Fremont',
+    'goshen': 'Goshen',
+    'hot-springs': 'Hot Springs',
+    'johnson': 'Johnson',
+    'laramie': 'Laramie',
+    'lincoln': 'Lincoln',
+    'natrona': 'Natrona',
+    'niobrara': 'Niobrara',
+    'park': 'Park',
+    'platte': 'Platte',
+    'sheridan': 'Sheridan',
+    'sublette': 'Sublette',
+    'sweetwater': 'Sweetwater',
+    'teton': 'Teton',
+    'uinta': 'Uinta',
+    'washakie': 'Washakie',
+    'weston': 'Weston'
+}
+
+def get_county_from_subdomain():
+    host = os.environ.get('HTTP_HOST', '').lower()
+    if 'assessortools.com' in host:
+        subdomain = host.replace('assessortools.com', '').replace('www.', '').strip('.')
+        county = SUBDOMAIN_TO_COUNTY.get(subdomain)
+        if county and county in WY_COUNTIES:
+            return county
+    st.error("Invalid subdomain. Please access via a valid county subdomain.")
+    st.stop()
+    return WY_COUNTIES[0]
+
 # Document types
 DOC_TYPES = ["Notice of Value", "Declaration", "Tax Notice"]
 
@@ -294,16 +332,12 @@ def save_user_pref(key: str, value):
     with open(prefs_path, 'w') as f:
         json.dump(prefs, f)
 
-# Helper to get county from query params (for sharing)
-def get_persistent_county() -> Optional[str]:
-    query_params = st.query_params
-    county_param = query_params.get("county", [None])[0]
-    if county_param and county_param in WY_COUNTIES:
-        return county_param
-    return None
-
 # Page config
 st.set_page_config(page_title="WY County Document Search", layout="wide")
+
+# Determine county from subdomain
+county = get_county_from_subdomain()
+st.caption(f"County: {county}")
 
 # Back to Home button (styled, same tab) - Fixed hover with CSS
 st.markdown(
@@ -332,7 +366,7 @@ st.markdown(
         text-shadow: 0 1px 2px rgba(0,0,0,0.2);  /* Slightly stronger on hover */
     }
     </style>
-    <a href="https://assessortools.com" target="_self" rel="noopener noreferrer" class="back-to-home">
+    <a href="/" target="_self" rel="noopener noreferrer" class="back-to-home">
         ← Back to Home
     </a>
     """,
@@ -340,8 +374,6 @@ st.markdown(
 )
 
 # Initialize session state
-if 'last_county' not in st.session_state:
-    st.session_state.last_county = None
 if 'docs_indexed' not in st.session_state:
     st.session_state.docs_indexed = {}
 if 'search_results' not in st.session_state:
@@ -350,28 +382,6 @@ if 'selected_res' not in st.session_state:
     st.session_state.selected_res = None
 if 'clear_password' not in st.session_state:
     st.session_state.clear_password = ""
-
-# Determine default county: user pref > URL param > logged-in county > first
-user_pref_county = load_user_pref('last_county')
-url_county = get_persistent_county()
-logged_in_county = os.environ.get('REMOTE_USER', '').strip()
-default_county = user_pref_county if user_pref_county in WY_COUNTIES else \
-                url_county if url_county else \
-                logged_in_county if logged_in_county in WY_COUNTIES else WY_COUNTIES[0]
-
-# County selection (simple dropdown, persists in session)
-st.subheader("Select Your County")
-default_index = WY_COUNTIES.index(default_county)
-county = st.selectbox("Choose a county:", WY_COUNTIES, index=default_index)
-if county != st.session_state.last_county:
-    st.session_state.last_county = county
-    save_user_pref('last_county', county)  # Save to server-side prefs
-    if url_county != county:  # Update URL only if different (for sharing)
-        st.query_params["county"] = [county]
-    st.session_state.docs_indexed = {}  # Reset indexing on county change
-    st.session_state.search_results = None
-    st.session_state.selected_res = None
-    st.rerun()
 
 if not county:
     st.warning("Please select a county to proceed.")
@@ -402,7 +412,7 @@ with st.sidebar:
     with st.expander("Instructions & Reset", expanded=False):
         st.header("Instructions")
         st.markdown("""
-        - Select your county above (remembers your last choice for next time).
+        - Your county is automatically set based on the subdomain.
         - Go to Settings tab to upload the 3 PDFs and 3 Excel files for your county.
         - Click "Index" for each document type in Settings.
         - Back to Search tab: Enter query and hit Enter or click Search to query and select from matches to download extracted PDFs.
@@ -414,14 +424,12 @@ with st.sidebar:
         clear_password = st.text_input("Enter password to confirm:", type="password", value=st.session_state.clear_password, key="clear_pwd_input")
         st.session_state.clear_password = clear_password
         
-        if st.button("Clear Session (Forget County)", disabled=not clear_password):
+        if st.button("Clear Session", disabled=not clear_password):
             if clear_password == "reset123":  # Change this to your desired password
-                save_user_pref('last_county', None)  # Clear user pref
-                st.query_params.clear()  # Clears URL params
                 for key in list(st.session_state.keys()):
                     if key != 'clear_password':  # Preserve password input state
                         del st.session_state[key]
-                st.session_state.last_county = None
+                st.session_state.clear_password = ""
                 st.success("Session cleared! Reloading...")
                 st.rerun()
             else:
