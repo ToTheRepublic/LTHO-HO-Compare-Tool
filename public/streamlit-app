@@ -1,4 +1,4 @@
-# HTTPS Server Block for Root Domain (assessortools.com) 
+# HTTPS Server Block for Root Domain (assessortools.com)
 server {
     listen 443 ssl http2;
     server_name assessortools.com www.assessortools.com;
