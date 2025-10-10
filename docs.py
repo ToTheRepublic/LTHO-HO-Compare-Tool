@@ -52,8 +52,8 @@ SUBDOMAIN_TO_COUNTY = {
 @st.cache_data
 def detect_county():
     try:
-        # JS to get subdomain (first part of hostname)
-        subdomain = st_js.st_javascript("return window.location.hostname.split('.')[0];")
+        # JS expression to get subdomain (first part of hostname) - no 'return' needed
+        subdomain = st_js.st_javascript("window.location.hostname.split('.')[0]")
         county = SUBDOMAIN_TO_COUNTY.get(subdomain.lower(), WY_COUNTIES[0])
         if subdomain.lower() not in SUBDOMAIN_TO_COUNTY:
             st.warning(f"Subdomain '{subdomain}' not recognized; defaulting to '{county}'.")
