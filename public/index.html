@@ -5,45 +5,75 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Assessor Tools - Wyoming County Utilities</title>
     <style>
+        :root {
+            --bg-body: #0F1117;
+            --text-primary: #FFFFFF;
+            --text-secondary: #D1D5DB;
+            --bg-card: #1F2937;
+            --border-color: #374151;
+            --bg-accent: #3B82F6;
+            --bg-gray: #6B7280;
+            --bg-light-gray: #374151;
+            --warning-bg: #F59E0B;
+            --warning-text: #111827;
+            --sidebar-bg: #1F2937;
+        }
+
+        @media (prefers-color-scheme: light) {
+            :root {
+                --bg-body: #FFFFFF;
+                --text-primary: #000000;
+                --text-secondary: #6B7280;
+                --bg-card: #F9FAFB;
+                --border-color: #E5E7EB;
+                --bg-accent: #3B82F6;
+                --bg-gray: #9CA3AF;
+                --bg-light-gray: #F3F4F6;
+                --warning-bg: #F59E0B;
+                --warning-text: #111827;
+                --sidebar-bg: #F9FAFB;
+            }
+        }
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #0F1117;
-            color: #FFFFFF;
+            background-color: var(--bg-body);
+            color: var(--text-primary);
             max-width: 800px;
             margin: 0 auto;
             padding: 20px;
             line-height: 1.6;
         }
         h1 {
-            color: #FFFFFF;
+            color: var(--text-primary);
             font-size: 2.5em;
             font-weight: 600;
             margin-bottom: 10px;
         }
         p {
-            color: #D1D5DB;
+            color: var(--text-secondary);
             font-size: 1.1em;
             margin-bottom: 30px;
         }
         .tool {
-            border: 1px solid #374151;
+            border: 1px solid var(--border-color);
             margin: 20px 0;
             padding: 20px;
             border-radius: 8px;
-            background-color: #1F2937;
+            background-color: var(--bg-card);
             box-shadow: 0 1px 3px rgba(0,0,0,0.3);
         }
         .tool h2 {
-            color: #FFFFFF;
+            color: var(--text-primary);
             font-size: 1.5em;
             margin-bottom: 10px;
         }
         .tool p {
-            color: #D1D5DB;
+            color: var(--text-secondary);
             margin-bottom: 15px;
         }
         a {
-            background-color: #3B82F6;
+            background-color: var(--bg-accent);
             color: #FFFFFF;
             padding: 12px 24px;
             text-decoration: none;
@@ -51,7 +81,7 @@
             font-weight: 500;
             display: inline-block;
             transition: background-color 0.2s;
-            border: 1px solid #3B82F6;
+            border: 1px solid var(--bg-accent);
         }
         a:hover {
             background-color: #2563EB;
@@ -63,8 +93,8 @@
             position: relative;
         }
         .warning {
-            background-color: #F59E0B;
-            color: #111827;
+            background-color: var(--warning-bg);
+            color: var(--warning-text);
             padding: 10px;
             border-radius: 6px;
             margin: 10px 0;
@@ -73,7 +103,7 @@
         .toggle-btn {
             background: none;
             border: none;
-            color: #FFFFFF;
+            color: var(--text-primary);
             font-size: 1.5em;
             cursor: pointer;
             position: absolute;
@@ -86,7 +116,7 @@
             left: -250px;
             width: 250px;
             height: 100vh;
-            background-color: #1F2937;
+            background-color: var(--sidebar-bg);
             transition: left 0.3s ease;
             z-index: 1000;
             padding: 20px;
@@ -110,7 +140,7 @@
         }
         .back-to-counties {
             display: block;
-            background-color: #6B7280;
+            background-color: var(--bg-gray);
             color: #FFFFFF;
             padding: 12px 16px;
             text-decoration: none;
@@ -118,7 +148,7 @@
             font-weight: 500;
             margin-bottom: 20px;
             transition: background-color 0.2s;
-            border: 1px solid #6B7280;
+            border: 1px solid var(--bg-gray);
             text-align: center;
         }
         .back-to-counties:hover {

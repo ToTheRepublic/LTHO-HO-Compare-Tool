@@ -5,24 +5,52 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Assessor Tools - Select Your Wyoming County</title>
     <style>
+        :root {
+            --bg-body: #0F1117;
+            --text-primary: #FFFFFF;
+            --text-secondary: #D1D5DB;
+            --bg-card: #1F2937;
+            --border-color: #374151;
+            --bg-accent: #3B82F6;
+            --bg-gray: #6B7280;
+            --bg-light-gray: #374151;
+            --warning-bg: #F59E0B;
+            --warning-text: #111827;
+        }
+
+        @media (prefers-color-scheme: light) {
+            :root {
+                --bg-body: #FFFFFF;
+                --text-primary: #000000;
+                --text-secondary: #6B7280;
+                --bg-card: #F9FAFB;
+                --border-color: #E5E7EB;
+                --bg-accent: #3B82F6;
+                --bg-gray: #9CA3AF;
+                --bg-light-gray: #F3F4F6;
+                --warning-bg: #F59E0B;
+                --warning-text: #111827;
+            }
+        }
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #0F1117;
-            color: #FFFFFF;
+            background-color: var(--bg-body);
+            color: var(--text-primary);
             max-width: 1200px;
             margin: 0 auto;
             padding: 20px;
             line-height: 1.6;
         }
         h1 {
-            color: #FFFFFF;
+            color: var(--text-primary);
             font-size: 2.5em;
             font-weight: 600;
             margin-bottom: 10px;
             text-align: center;
         }
         p {
-            color: #D1D5DB;
+            color: var(--text-secondary);
             font-size: 1.1em;
             margin-bottom: 40px;
             text-align: center;
@@ -34,20 +62,20 @@
             margin-top: 20px;
         }
         .county-link {
-            background-color: #1F2937;
-            border: 1px solid #374151;
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
             padding: 20px;
             border-radius: 8px;
             text-decoration: none;
-            color: #FFFFFF;
+            color: var(--text-primary);
             font-weight: 500;
             text-align: center;
             transition: background-color 0.2s, border-color 0.2s;
             box-shadow: 0 1px 3px rgba(0,0,0,0.3);
         }
         .county-link:hover {
-            background-color: #3B82F6;
-            border-color: #3B82F6;
+            background-color: var(--bg-accent);
+            border-color: var(--bg-accent);
             color: #FFFFFF;
         }
         .county-name {
@@ -55,12 +83,20 @@
             margin-bottom: 5px;
         }
         .auth-note {
-            background-color: #374151;
-            color: #D1D5DB;
+            background-color: var(--bg-light-gray);
+            color: var(--text-secondary);
             padding: 15px;
             border-radius: 6px;
             margin: 20px 0;
             text-align: center;
+            font-weight: 500;
+        }
+        .warning {
+            background-color: var(--warning-bg);
+            color: var(--warning-text);
+            padding: 10px;
+            border-radius: 6px;
+            margin: 10px 0;
             font-weight: 500;
         }
     </style>
