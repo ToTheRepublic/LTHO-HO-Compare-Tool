@@ -49,7 +49,7 @@ SUBDOMAIN_TO_COUNTY = {
 }
 
 # Detect subdomain via JS and set county (runs once per session)
-@st.cache_data
+# @st.cache_data
 def detect_county():
     try:
         # JS expression to get subdomain (first part of hostname) - no 'return' needed
