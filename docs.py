@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit_javascript as st_js  # New import for JS detection
 import pandas as pd
 import os
 import re
@@ -20,7 +21,7 @@ WY_COUNTIES = [
     "Sheridan", "Sublette", "Sweetwater", "Teton", "Uinta", "Washakie", "Weston"
 ]
 
-# Subdomain to county mapping
+# Subdomain to county mapping (based on slugs from county-landing.html)
 SUBDOMAIN_TO_COUNTY = {
     'albany': 'Albany',
     'big-horn': 'Big Horn',
@@ -47,15 +48,21 @@ SUBDOMAIN_TO_COUNTY = {
     'weston': 'Weston'
 }
 
-def get_county_from_subdomain():
-    query_params = st.query_params
-    subdomain = query_params.get("subdomain", [""])[0].lower().strip()
-    print(f"DEBUG: Query subdomain = '{subdomain}'")  # Console debug
-    if subdomain and subdomain in SUBDOMAIN_TO_COUNTY:
-        county = SUBDOMAIN_TO_COUNTY[subdomain]
-        print(f"DEBUG: Matched county = '{county}'")  # Console debug
+# Detect subdomain via JS and set county (runs once per session)
+@st.cache_data
+def detect_county():
+    try:
+        # JS to get subdomain (first part of hostname)
+        subdomain = st_js.st_javascript("return window.location.hostname.split('.')[0];")
+        county = SUBDOMAIN_TO_COUNTY.get(subdomain.lower(), WY_COUNTIES[0])
+        if subdomain.lower() not in SUBDOMAIN_TO_COUNTY:
+            st.warning(f"Subdomain '{subdomain}' not recognized; defaulting to '{county}'.")
         return county
-    return None
+    except:
+        # Fallback if JS fails
+        return WY_COUNTIES[0]
+
+county = detect_county()
 
 # Document types
 DOC_TYPES = ["Notice of Value", "Declaration", "Tax Notice"]
@@ -332,15 +339,14 @@ def save_user_pref(key: str, value):
         json.dump(prefs, f)
 
 # Page config
-st.set_page_config(page_title="WY County Document Search", layout="wide")
+st.set_page_config(page_title=f"WY County Document Search - {county} County", layout="wide")
 
-# Determine county from subdomain
-county = get_county_from_subdomain()
-if county is None:
-    county = st.selectbox("Select County:", WY_COUNTIES)
-st.caption(f"County: {county}")
+# Auto-set session state for county
+if 'last_county' not in st.session_state:
+    st.session_state.last_county = county
+save_user_pref('last_county', county)  # Persist for fallback
 
-# Back to Home button (styled, same tab) - Fixed hover with CSS
+# Back to Home button (to subdomain index.html)
 st.markdown(
     """
     <style>
@@ -368,7 +374,7 @@ st.markdown(
     }
     </style>
     <a href="/" target="_self" rel="noopener noreferrer" class="back-to-home">
-        ← Back to Home
+        ← Back to Tools
     </a>
     """,
     unsafe_allow_html=True
@@ -383,10 +389,6 @@ if 'selected_res' not in st.session_state:
     st.session_state.selected_res = None
 if 'clear_password' not in st.session_state:
     st.session_state.clear_password = ""
-
-if not county:
-    st.warning("Please select a county to proceed.")
-    st.stop()
 
 st.title(f"WY County Document Search - {county} County")
 county_dir = get_county_path(county)
@@ -413,7 +415,7 @@ with st.sidebar:
     with st.expander("Instructions & Reset", expanded=False):
         st.header("Instructions")
         st.markdown("""
-        - Your county is automatically set based on the subdomain.
+        - County is auto-detected from your subdomain.
         - Go to Settings tab to upload the 3 PDFs and 3 Excel files for your county.
         - Click "Index" for each document type in Settings.
         - Back to Search tab: Enter query and hit Enter or click Search to query and select from matches to download extracted PDFs.
@@ -425,12 +427,13 @@ with st.sidebar:
         clear_password = st.text_input("Enter password to confirm:", type="password", value=st.session_state.clear_password, key="clear_pwd_input")
         st.session_state.clear_password = clear_password
         
-        if st.button("Clear Session", disabled=not clear_password):
+        if st.button("Clear Session (Forget County)", disabled=not clear_password):
             if clear_password == "reset123":  # Change this to your desired password
+                save_user_pref('last_county', None)  # Clear user pref
                 for key in list(st.session_state.keys()):
                     if key != 'clear_password':  # Preserve password input state
                         del st.session_state[key]
-                st.session_state.clear_password = ""
+                st.session_state.last_county = county  # Reset to detected
                 st.success("Session cleared! Reloading...")
                 st.rerun()
             else:
