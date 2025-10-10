@@ -55,23 +55,20 @@ def detect_county():
         # Fallback if JS fails
         return WY_COUNTIES[0]
 
-# Early session state init for county and rendering flag
+# Early session state init for county (avoids flash)
 if 'detected_county' not in st.session_state:
-    st.session_state.detected_county = detect_county()  # Run detection once (blocks until JS resolves)
-if 'title_rendered' not in st.session_state:
-    st.session_state.title_rendered = False
+    st.session_state.detected_county = None
 
-county = st.session_state.detected_county or WY_COUNTIES[0]  # Safe fallback
+# Detect and store county
+if st.session_state.detected_county is None:
+    st.session_state.detected_county = detect_county()
+    st.rerun()  # Immediate rerun to apply county-specific title/config
 
-# Render title/config only once (on first run)
-if not st.session_state.title_rendered:
-    st.set_page_config(page_title=f"Excel Compare Tool - {county} County", layout="wide")
-    st.title(f"Wyoming County Excel Comparison Tool - {county} County")
-    st.session_state.title_rendered = True
+county = st.session_state.detected_county
 
-# Auto-set session state for county
-if 'last_county' not in st.session_state:
-    st.session_state.last_county = county
+# Now set county-specific title/config on rerun (overrides placeholder)
+st.set_page_config(page_title=f"LTHO-HO Compare Tool - {county} County", layout="wide")
+st.title(f"{county} LTHO-HO Comparison Tool")
 
 def parse_filer_name(full_name):
     full_name = full_name.strip()
@@ -374,10 +371,6 @@ def save_user_pref(key: str, value):
     prefs[key] = value
     with open(prefs_path, 'w') as f:
         json.dump(prefs, f)
-
-# Streamlit App
-st.set_page_config(page_title=f"Excel Compare Tool - {county} County", layout="wide")
-st.title(f"Wyoming County Excel Comparison Tool - {county} County")
 
 # Auto-set session state for county
 if 'last_county' not in st.session_state:
