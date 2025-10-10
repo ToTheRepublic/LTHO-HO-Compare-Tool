@@ -61,9 +61,10 @@ def get_county_from_subdomain():
             console.log('Extracted subdomain from host "' + fullHost + '": ' + subdomain);
             if (subdomain && subdomain !== fullHost && subdomain.length > 0) {
                 var url = new URL(window.parent.location);
-                url.searchParams.set('subdomain', subdomain);
-                window.parent.history.replaceState(null, null, url.toString());
-                // Streamlit will detect the query param change and rerun
+                if (!url.searchParams.has('subdomain')) {
+                    url.searchParams.set('subdomain', subdomain);
+                    window.parent.location = url.toString();
+                }
             } else {
                 console.error('Could not extract valid subdomain');
             }
