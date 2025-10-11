@@ -1,6 +1,7 @@
 # HTTPS for Root Domain (wydocsportal.com → county-landing.html)
 server {
-    listen 443 ssl http2;
+    listen 443 ssl;
+    http2 on;
     server_name wydocsportal.com www.wydocsportal.com;
 
     client_max_body_size 200M;  # For PDF uploads/downloads
@@ -22,6 +23,9 @@ server {
         index public-landing.html index.html index.htm;
         try_files $uri $uri/ =404;
     }
+
+    ssl_certificate /etc/letsencrypt/live/wydocsportal.com/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/wydocsportal.com/privkey.pem; # managed by Certbot
 }
 
 # HTTPS for Subdomains (*.wydocsportal.com → index.html + proxy to tool)
@@ -60,12 +64,22 @@ server {
 
 # HTTP Redirect (Certbot-managed)
 server {
+    if ($host = www.wydocsportal.com) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+    if ($host = wydocsportal.com) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
     if ($host = 'wydocsportal.com') {
         return 301 https://$host$request_uri;
     }
+
     if ($host = 'www.wydocsportal.com') {
         return 301 https://wydocsportal.com$request_uri;
     }
+
     listen 80;
     server_name wydocsportal.com www.wydocsportal.com;
     return 404;
