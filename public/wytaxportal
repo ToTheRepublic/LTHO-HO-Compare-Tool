@@ -6,10 +6,10 @@ server {
     client_max_body_size 200M;  # For PDF uploads/downloads
 
     # SSL (Certbot-managed)
-    ssl_certificate /etc/letsencrypt/live/wydocsportal.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/wydocsportal.com/privkey.pem;
-    include /etc/letsencrypt/options-ssl-nginx.conf;
-    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+    # ssl_certificate /etc/letsencrypt/live/wydocsportal.com/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/wydocsportal.com/privkey.pem;
+    # include /etc/letsencrypt/options-ssl-nginx.conf;
+    # ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
     # Redirect www to non-www
     if ($host = 'www.wydocsportal.com') {
@@ -33,10 +33,10 @@ server {
     client_max_body_size 200M;
 
     # SSL (same wildcard cert)
-    ssl_certificate /etc/letsencrypt/live/wydocsportal.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/wydocsportal.com/privkey.pem;
-    include /etc/letsencrypt/options-ssl-nginx.conf;
-    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+    # ssl_certificate /etc/letsencrypt/live/wydocsportal.com/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/wydocsportal.com/privkey.pem;
+    # include /etc/letsencrypt/options-ssl-nginx.conf;
+    # ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
     # Serve index.html from isolated dir
     location / {
