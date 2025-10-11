@@ -54,12 +54,13 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;  # Critical: Passes full subdomain (e.g., sweetwater.wydocsportal.com)
-        proxy_set_header X-Forwarded-Host $host;  # Helps Streamlit build correct wss:// URLs
+        proxy_set_header Host $host;  # Passes full subdomain (e.g., sweetwater.wydocsportal.com) for wss:// URL gen
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;  # Ensures wss:// over https
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 3600s;  # Long for PDF indexing/streaming
+        proxy_buffering off;  # Key for Streamlit's real-time streams—no buffering delays
+        proxy_read_timeout 3600s;  # Handles long PDF indexing/searches
         proxy_send_timeout 3600s;
         proxy_connect_timeout 60s;
     }
