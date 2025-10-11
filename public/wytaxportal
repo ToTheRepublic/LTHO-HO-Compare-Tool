@@ -43,6 +43,9 @@ server {
     # include /etc/letsencrypt/options-ssl-nginx.conf;
     # ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
+    ssl_certificate /etc/letsencrypt/live/wydocsportal.com-0001/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/wydocsportal.com-0001/privkey.pem;
+
     # Serve index.html from isolated dir
     location / {
         return 301 /search;
