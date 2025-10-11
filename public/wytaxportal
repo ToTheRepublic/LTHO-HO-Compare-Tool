@@ -44,9 +44,7 @@ server {
 
     # Serve index.html from isolated dir
     location / {
-        root /var/www/html;
-        index index.html;
-        try_files $uri $uri/ =404;
+        return 301 /search;
     }
 
     # Proxy tool path (e.g., /search → public docs.py)
