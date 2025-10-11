@@ -24,8 +24,9 @@ server {
         try_files $uri $uri/ =404;
     }
 
-    ssl_certificate /etc/letsencrypt/live/wydocsportal.com/fullchain.pem; # managed by Certbot
-    ssl_certificate_key /etc/letsencrypt/live/wydocsportal.com/privkey.pem; # managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/wydocsportal.com-0001/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/wydocsportal.com-0001/privkey.pem;
+
 }
 
 # HTTPS for Subdomains (*.wydocsportal.com → index.html + proxy to tool)
@@ -53,10 +54,14 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host $http_host;
+        proxy_set_header Host $host;  # Critical: Passes full subdomain (e.g., sweetwater.wydocsportal.com)
+        proxy_set_header X-Forwarded-Host $host;  # Helps Streamlit build correct wss:// URLs
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 3600s;  # Long for PDF indexing/streaming
+        proxy_send_timeout 3600s;
+        proxy_connect_timeout 60s;
     }
 }
 
