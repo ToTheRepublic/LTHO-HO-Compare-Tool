@@ -46,24 +46,28 @@ server {
     ssl_certificate /etc/letsencrypt/live/wydocsportal.com-0001/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/wydocsportal.com-0001/privkey.pem;
 
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        '' close;
+    }
+
     # Serve index.html from isolated dir
     location / {
         return 301 /search;
     }
 
-    # Proxy tool path (e.g., /search → public docs.py)
     location /search/ {
         proxy_pass http://127.0.0.1:8503/;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;  # Passes full subdomain (e.g., sweetwater.wydocsportal.com) for wss:// URL gen
+        proxy_set_header Connection $connection_upgrade;  # Uses the map for WebSocket magic
+        proxy_set_header Host $host;  # Full subdomain (e.g., waskie.wydocsportal.com)
         proxy_set_header X-Forwarded-Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;  # Ensures wss:// over https
+        proxy_set_header X-Forwarded-Proto $scheme;  # Locks https/wss://
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_buffering off;  # Key for Streamlit's real-time streams—no buffering delays
-        proxy_read_timeout 3600s;  # Handles long PDF indexing/searches
+        proxy_buffering off;  # No delays on streams
+        proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
         proxy_connect_timeout 60s;
     }
