@@ -424,7 +424,7 @@ if 'selected_res' not in st.session_state:
 if 'clear_password' not in st.session_state:
     st.session_state.clear_password = ""
 
-st.title(f"WY County Document Search - {county} County")
+st.title(f"Document Search Tool - {county} County")
 county_dir = get_county_path(county)
 
 # Sidebar with county display
