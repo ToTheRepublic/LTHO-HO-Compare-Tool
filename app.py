@@ -45,17 +45,20 @@ SUBDOMAIN_TO_COUNTY = {
 # Detect subdomain via JS and set county (no cache - called once per run)
 def detect_county():
     try:
-        # JS expression to get subdomain (first part of hostname) - no 'return' needed
-        subdomain = st_js.st_javascript("window.location.hostname.split('.')[0]")
+        # JS expression: Wrap in IIFE with return to send value back to Python
+        subdomain = st_js.st_javascript("(function(){ return window.location.hostname.split('.')[0]; })()")
+        if subdomain is None:
+            raise ValueError("JS returned None")
         county = SUBDOMAIN_TO_COUNTY.get(subdomain.lower(), WY_COUNTIES[0])
         if subdomain.lower() not in SUBDOMAIN_TO_COUNTY:
             st.warning(f"Subdomain '{subdomain}' not recognized; defaulting to '{county}'.")
         return county
-    except:
-        # Fallback if JS fails
-        return ""#WY_COUNTIES[0]
+    except Exception as e:
+        # Fallback if JS fails (e.g., browser issue, library error)
+        st.warning(f"County detection failed ({str(e)}); defaulting to 'Albany'.")
+        return WY_COUNTIES[0]  # Uncommented and fixed fallback
 
-county = detect_county()
+# county = detect_county()
 
 # Early session state init for county (avoids flash)
 if 'detected_county' not in st.session_state:
@@ -66,7 +69,7 @@ if st.session_state.detected_county is None:
     st.session_state.detected_county = detect_county()
     st.rerun()  # Immediate rerun to apply county-specific title/config
 
-# county = st.session_state.detected_county
+county = st.session_state.detected_county
 
 # Now set county-specific title/config on rerun (overrides placeholder)
 st.set_page_config(page_title=f"LTHO-HO Compare Tool - {county} County", layout="wide")
