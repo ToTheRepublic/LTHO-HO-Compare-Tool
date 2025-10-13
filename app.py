@@ -42,40 +42,33 @@ SUBDOMAIN_TO_COUNTY = {
     'weston': 'Weston'
 }
 
+# Detect subdomain via JS and set county (no cache - called once per run)
 def detect_county():
     try:
-        # Get Host header from websocket (passed by Nginx)
-        from streamlit.web.server import websocket_headers
-        headers = websocket_headers()
-        host = headers.get('host', '').lower().strip()
-        if not host:
-            raise ValueError("No host header")
-        # Parse subdomain (first part before .assessortools.com)
-        if 'assessortools.com' in host:
-            subdomain = host.split('.')[0]
-        else:
-            subdomain = host  # Fallback for local testing
-        county = SUBDOMAIN_TO_COUNTY.get(subdomain, WY_COUNTIES[0])
-        if subdomain not in SUBDOMAIN_TO_COUNTY:
-            st.warning(f"Host '{host}' (subdomain '{subdomain}') not recognized; defaulting to '{county}'.")
+        # JS expression to get subdomain (first part of hostname) - no 'return' needed
+        subdomain = st_js.st_javascript("window.location.hostname.split('.')[0]")
+        county = SUBDOMAIN_TO_COUNTY.get(subdomain.lower(), WY_COUNTIES[0])
+        if subdomain.lower() not in SUBDOMAIN_TO_COUNTY:
+            st.warning(f"Subdomain '{subdomain}' not recognized; defaulting to '{county}'.")
         return county
-    except Exception as e:
-        st.warning(f"County detection failed ({str(e)}); defaulting to 'Albany'.")
-        return WY_COUNTIES[0]
+    except:
+        # Fallback if JS fails
+        return ""#WY_COUNTIES[0]
+
+county = detect_county()
 
 # Early session state init for county (avoids flash)
 if 'detected_county' not in st.session_state:
     st.session_state.detected_county = None
 
-# Detect and store county (no retry needed—server-side is instant)
+# Detect and store county
 if st.session_state.detected_county is None:
     st.session_state.detected_county = detect_county()
-    st.rerun()  # One-time rerun to apply
+    st.rerun()  # Immediate rerun to apply county-specific title/config
 
-# Always use the stored value (with safety net)
-county = st.session_state.detected_county or WY_COUNTIES[0]
+# county = st.session_state.detected_county
 
-# Now set county-specific title/config on rerun
+# Now set county-specific title/config on rerun (overrides placeholder)
 st.set_page_config(page_title=f"LTHO-HO Compare Tool - {county} County", layout="wide")
 st.title(f"{county} LTHO-HO Comparison Tool")
 
@@ -128,9 +121,18 @@ def load_blacklist(county):
             data = json.load(f)
             if isinstance(data, list) and data and isinstance(data[0], str):
                 # Migrate old format: list of strings to list of dicts
-                return [{'account': acc, 'applicant_address': '', 'norm_addr': ''} for acc in data]
-            else:
-                return data
+                data = [{'account': acc, 'applicant_address': '', 'norm_addr': ''} for acc in data]
+            # Normalize: Ensure all entries have required keys (for mixed/old/new formats)
+            for entry in data:
+                if isinstance(entry, dict):
+                    entry.setdefault('applicant_account', '')  # Missing in old/migrated
+                    entry.setdefault('account', '')
+                    entry.setdefault('applicant_address', '')
+                    entry.setdefault('norm_addr', '')
+                else:
+                    # Skip invalid entries
+                    continue
+            return data
     return []
 
 def save_blacklist(county, blacklist_list):
@@ -539,16 +541,12 @@ with tab1:
         st.write(f"Current Blacklist ({len(st.session_state.blacklist)} entries):")
         if st.session_state.blacklist:
             blacklist_df = pd.DataFrame(st.session_state.blacklist)
-            if 'applicant_account' in blacklist_df.columns:
-                blacklist_display_df = blacklist_df[['applicant_account', 'account', 'applicant_address']].copy()
-                blacklist_display_df.columns = ['Applicant Account', 'Matching Account', 'Address']
-            else:
-                # Fallback for old format
-                blacklist_display_df = pd.DataFrame({
-                    'Applicant Account': [''] * len(blacklist_df),
-                    'Matching Account': blacklist_df['account'],
-                    'Address': blacklist_df['applicant_address']
-                })
+            # Always select the core display columns (now guaranteed by normalization)
+            blacklist_display_df = blacklist_df[['applicant_account', 'account', 'applicant_address']].copy()
+            blacklist_display_df.columns = ['Applicant Account', 'Matching Account', 'Address']
+            # Fill any lingering NaN (safety net, though normalization prevents it)
+            blacklist_display_df = blacklist_display_df.fillna('')
+            
             blacklist_display_df['Select'] = False
             edited_blacklist = st.data_editor(
                 blacklist_display_df,
