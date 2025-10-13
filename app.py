@@ -1,4 +1,3 @@
-from wsgiref import headers
 import streamlit as st
 import streamlit_javascript as st_js  # New import for JS detection
 import pandas as pd
@@ -46,15 +45,32 @@ SUBDOMAIN_TO_COUNTY = {
 # Detect subdomain via JS and set county (no cache - called once per run)
 def detect_county():
     try:
-        # JS expression to get subdomain (first part of hostname) - no 'return' needed
-        subdomain = st_js.st_javascript("window.location.hostname.split('.')[0]")
-        county = SUBDOMAIN_TO_COUNTY.get(subdomain.lower(), WY_COUNTIES[0])
-        if subdomain.lower() not in SUBDOMAIN_TO_COUNTY:
-            st.warning(f"Subdomain '{subdomain}' not recognized; defaulting to '{county}'.")
+        import streamlit.runtime as runtime  # Ensure import (add if missing)
+        session_mgr = runtime.get_instance()._session_mgr
+        active_sessions = session_mgr.list_active_sessions()
+        if not active_sessions:
+            raise ValueError("No active session found")
+        
+        # Get the first (typically only) active session's request
+        request = active_sessions[0].client.request
+        host = request.host.lower().strip()  # e.g., 'laramie.assessortools.com'
+        
+        if not host:
+            raise ValueError("No host available in request")
+        
+        if 'assessortools.com' not in host:
+            raise ValueError(f"Invalid host '{host}' (must include 'assessortools.com')")
+        
+        subdomain = host.split('.')[0]
+        county = SUBDOMAIN_TO_COUNTY.get(subdomain)
+        if not county:
+            raise ValueError(f"Subdomain '{subdomain}' from host '{host}' not mapped to a Wyoming county")
+        
         return county
-    except:
-        # Fallback if JS fails
-        return ""#WY_COUNTIES[0]
+    except Exception as e:
+        st.error(f"County detection failed: {str(e)}")
+        st.info("Please access the app via a valid subdomain (e.g., https://laramie.assessortools.com).")
+        return None
 
 county = detect_county()
 
@@ -68,11 +84,16 @@ if st.session_state.detected_county is None:
     st.rerun()  # Immediate rerun to apply county-specific title/config
 
 county = st.session_state.detected_county
-st.sidebar.write(f"DEBUG: Detected county = '{st.session_state.detected_county}', Using county = '{county}', Host = '{headers.get('host', 'MISSING')}'")
 
+if county is None:
+    st.stop()  # Or st.error("No county detected—exiting.") if you prefer a message before stop
+    
 # Now set county-specific title/config on rerun (overrides placeholder)
-st.set_page_config(page_title=f"LTHO-HO Compare Tool - {county} County", layout="wide")
-st.title(f"{county} LTHO-HO Comparison Tool")
+if county:
+    st.set_page_config(page_title=f"LTHO-HO Compare Tool - {county} County", layout="wide")
+    st.title(f"{county} LTHO-HO Comparison Tool")
+else:
+    st.title("LTHO-HO Compare Tool (No County)")
 
 def parse_filer_name(full_name):
     full_name = full_name.strip()
@@ -445,7 +466,10 @@ accounts_path = get_accounts_path(county)
 
 # Sidebar with county display
 with st.sidebar:
-    st.write(f"**Current County:** {county}")
+    if county:
+        st.write(f"**Current County:** {county}")
+    else:
+        st.error("**No County Detected**")
 
 # Tabs
 tab1, tab2 = st.tabs(["Compare", "Settings"])
