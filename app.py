@@ -72,7 +72,7 @@ def detect_county():
         st.info("Please access the app via a valid subdomain (e.g., https://laramie.assessortools.com).")
         return None
 
-county = detect_county()
+# county = detect_county()
 
 # Early session state init for county (avoids flash)
 if 'detected_county' not in st.session_state:
