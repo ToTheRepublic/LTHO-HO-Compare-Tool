@@ -65,9 +65,9 @@ if 'detected_county' not in st.session_state:
     st.session_state.detected_county = None
 
 # Detect and store county
-if st.session_state.detected_county is None:
-    st.session_state.detected_county = detect_county()
-    st.rerun()  # Immediate rerun to apply county-specific title/config
+# if st.session_state.detected_county is None:
+#     st.session_state.detected_county = detect_county()
+#     st.rerun()  # Immediate rerun to apply county-specific title/config
 
 st.session_state.detected_county = county
 # county = st.session_state.detected_county
