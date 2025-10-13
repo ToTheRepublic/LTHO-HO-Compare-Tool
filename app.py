@@ -58,7 +58,7 @@ def detect_county():
         st.warning(f"County detection failed ({str(e)}); defaulting to 'Albany'.")
         return WY_COUNTIES[0]  # Uncommented and fixed fallback
 
-# county = detect_county()
+county = detect_county()
 
 # Early session state init for county (avoids flash)
 if 'detected_county' not in st.session_state:
