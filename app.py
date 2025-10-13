@@ -69,7 +69,8 @@ if st.session_state.detected_county is None:
     st.session_state.detected_county = detect_county()
     st.rerun()  # Immediate rerun to apply county-specific title/config
 
-county = st.session_state.detected_county
+st.session_state.detected_county = county
+# county = st.session_state.detected_county
 
 # Now set county-specific title/config on rerun (overrides placeholder)
 st.set_page_config(page_title=f"LTHO-HO Compare Tool - {county} County", layout="wide")
