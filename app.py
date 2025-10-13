@@ -42,38 +42,40 @@ SUBDOMAIN_TO_COUNTY = {
     'weston': 'Weston'
 }
 
-# Detect subdomain via JS and set county (no cache - called once per run)
 def detect_county():
     try:
-        # JS: IIFE with return, using window.parent to escape iframe
-        subdomain = st_js.st_javascript("(function(){ return window.parent.location.hostname.split('.')[0]; })()")
-        if subdomain is None:
-            raise ValueError("JS returned None")
-        county = SUBDOMAIN_TO_COUNTY.get(subdomain.lower(), WY_COUNTIES[0])
-        if subdomain.lower() not in SUBDOMAIN_TO_COUNTY:
-            st.warning(f"Subdomain '{subdomain}' not recognized; defaulting to '{county}'.")
+        # Get Host header from websocket (passed by Nginx)
+        from streamlit.web.server import websocket_headers
+        headers = websocket_headers()
+        host = headers.get('host', '').lower().strip()
+        if not host:
+            raise ValueError("No host header")
+        # Parse subdomain (first part before .assessortools.com)
+        if 'assessortools.com' in host:
+            subdomain = host.split('.')[0]
+        else:
+            subdomain = host  # Fallback for local testing
+        county = SUBDOMAIN_TO_COUNTY.get(subdomain, WY_COUNTIES[0])
+        if subdomain not in SUBDOMAIN_TO_COUNTY:
+            st.warning(f"Host '{host}' (subdomain '{subdomain}') not recognized; defaulting to '{county}'.")
         return county
     except Exception as e:
-        # Fallback if JS fails (e.g., browser issue, library error)
         st.warning(f"County detection failed ({str(e)}); defaulting to 'Albany'.")
         return WY_COUNTIES[0]
-
-# county = detect_county()
 
 # Early session state init for county (avoids flash)
 if 'detected_county' not in st.session_state:
     st.session_state.detected_county = None
 
-# Detect and store county (retry if empty)
-if st.session_state.detected_county is None or st.session_state.detected_county == "":
+# Detect and store county (no retry needed—server-side is instant)
+if st.session_state.detected_county is None:
     st.session_state.detected_county = detect_county()
-    st.rerun()  # Immediate rerun to apply county-specific title/config
+    st.rerun()  # One-time rerun to apply
 
-
-# Always use the stored value (with fallback safety)
+# Always use the stored value (with safety net)
 county = st.session_state.detected_county or WY_COUNTIES[0]
 
-# Now set county-specific title/config on rerun (overrides placeholder)
+# Now set county-specific title/config on rerun
 st.set_page_config(page_title=f"LTHO-HO Compare Tool - {county} County", layout="wide")
 st.title(f"{county} LTHO-HO Comparison Tool")
 
