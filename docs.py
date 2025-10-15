@@ -7,6 +7,7 @@ import io
 import fitz  # PyMuPDF
 import json
 import time
+import shutil
 from datetime import datetime
 import base64
 import urllib.parse
@@ -86,6 +87,8 @@ def detect_county():
 # Early session state init for county (avoids flash)
 if 'detected_county' not in st.session_state:
     st.session_state.detected_county = None
+if 'uploading' not in st.session_state:  # Add lock/flag for upload
+    st.session_state.uploading = False
 
 # Detect and store county
 if st.session_state.detected_county is None:
@@ -592,22 +595,18 @@ with tab2:
                 # PDF Status and Replace
                 pdf_status = get_file_status(county_dir, doc_type, "pdf")
                 st.write(f"**PDF:** {pdf_status}")
+                upload_status = st.empty()  # For dynamic feedback
                 uploaded_pdf = st.file_uploader(f"Replace {doc_type} PDF", type=['pdf'], key=f"{doc_type.replace(' ', '_').lower()}_pdf_replace_{county}")
                 if uploaded_pdf is not None:
+                    upload_status.text("Uploading...")
                     try:
                         pdf_path = get_doc_path(county_dir, doc_type, "pdf")
                         with open(pdf_path, "wb") as f:
-                            # Chunked write for large files to avoid memory spikes
-                            buffer = uploaded_pdf.getbuffer()
-                            chunk_size = 1024 * 1024  # 1MB chunks
-                            for i in range(0, len(buffer), chunk_size):
-                                f.write(buffer[i:i + chunk_size])
-                        st.success(f"{doc_type} PDF replaced!")
-                        st.session_state.docs_indexed[doc_type] = False
-                        st.rerun()
+                            shutil.copyfileobj(uploaded_pdf, f, length=1024 * 1024)
+                        upload_status.success(f"{doc_type} PDF replaced!")
+                        st.session_state.docs_indexed[doc_type] = False  # Mark as needs re-index
                     except Exception as e:
-                        st.error(f"Upload failed: {str(e)}")
-                        # Log to file for EC2 debugging
+                        upload_status.error(f"Upload failed: {str(e)}")
                         with open("/tmp/streamlit_upload_error.log", "a") as logf:
                             logf.write(f"{datetime.now()}: {str(e)}\n")
                 
