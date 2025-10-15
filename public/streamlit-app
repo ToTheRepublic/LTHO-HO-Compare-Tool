@@ -4,7 +4,10 @@ server {
     http2 on;
     server_name assessortools.com www.assessortools.com;
     
-    client_max_body_size 500M;  # Allows up to 200MB—adjust if your PDFs are larger (e.g., 500M)
+    client_max_body_size 500M;  # Allows up to 500MB
+    client_body_timeout 300s;   # 5min for uploads
+    client_header_timeout 300s;
+    send_timeout 300s;
     
     # SSL (managed by Certbot)
     ssl_certificate /etc/letsencrypt/live/assessortools.com/fullchain.pem; # managed by Certbot
@@ -40,7 +43,10 @@ server {
     http2 on;
     server_name ~^(?<subdomain>.+)\.assessortools\.com$;
     
-    client_max_body_size 200M;  # Allows up to 200MB—adjust if your PDFs are larger (e.g., 500M)
+    client_max_body_size 500M;  # Allows up to 500MB
+    client_body_timeout 300s;   # 5min for uploads
+    client_header_timeout 300s;
+    send_timeout 300s;
     
     # SSL (managed by Certbot)
     ssl_certificate /etc/letsencrypt/live/assessortools.com/fullchain.pem; # managed by Certbot
@@ -65,6 +71,11 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_buffering off;  # Stream large bodies directly
+        proxy_request_buffering off;
     }
     
     # Docs Tool (/docs proxies to port 8502)
@@ -77,6 +88,11 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_buffering off;  # Stream large bodies directly
+        proxy_request_buffering off;
     }
 }
 
