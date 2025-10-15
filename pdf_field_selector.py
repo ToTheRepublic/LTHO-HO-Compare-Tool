@@ -19,9 +19,10 @@ class PDFRegionSelector:
         self.page_image = None
         self.canvas = None
         self.scale = 1.0
+        self.render_mat = None
         self.selected_regions = {}
         
-        self.fields = ['Account Number', 'Property Address', 'Parcel ID', 'Legal Description']
+        self.fields = ['ACCOUNTNO', 'NAME1', 'ADDRESS']
         self.current_field = None
         self.start_x = self.start_y = 0
         self.rect = None
@@ -66,9 +67,50 @@ class PDFRegionSelector:
                     self.selected_regions = json.load(f)
                 self.status_label.config(text=f"Loaded {len(self.selected_regions)} regions from JSON.")
                 print(f"Loaded regions: {list(self.selected_regions.keys())}")
-                print("Current BBoxes:")
+                print("Current BBoxes (raw from JSON):")
                 for field, bbox in self.selected_regions.items():
                     print(f"  {field}: {bbox}")
+
+                # Attempt to auto-detect whether saved bboxes are already PDF-space
+                # or are legacy canvas-pixel coords. We'll compare which interpretation
+                # extracts more text from the page and pick that one.
+                if self.page is not None:
+                    # prepare render/inverse matrices
+                    mat = fitz.Matrix(self.scale, self.scale).prerotate(-self.rot)
+                    inv_mat = fitz.Matrix(mat)
+                    inv_mat.invert()
+                    updated = {}
+                    for field, bbox in self.selected_regions.items():
+                        try:
+                            x0, y0, x1, y1 = bbox
+                        except Exception:
+                            # malformed bbox, skip
+                            updated[field] = bbox
+                            continue
+
+                        # Interpretation A: bbox is PDF-space (use as-is)
+                        rect_a = fitz.Rect(x0, y0, x1, y1)
+                        text_a = self.page.get_text(clip=rect_a) or ''
+
+                        # Interpretation B: bbox is canvas/pixel-space -> map to PDF
+                        p0 = fitz.Point(x0, y0) * inv_mat
+                        p1 = fitz.Point(x1, y1) * inv_mat
+                        rect_b = fitz.Rect(p0.x, p0.y, p1.x, p1.y)
+                        text_b = self.page.get_text(clip=rect_b) or ''
+
+                        # Choose the interpretation that yields more text (heuristic)
+                        if len(text_b) > len(text_a):
+                            chosen = (rect_b.x0, rect_b.y0, rect_b.x1, rect_b.y1)
+                            print(f"Converted '{field}' from canvas pixels to PDF points: {bbox} -> {chosen}")
+                            updated[field] = chosen
+                        else:
+                            updated[field] = (rect_a.x0, rect_a.y0, rect_a.x1, rect_a.y1)
+
+                    # Replace selected_regions with updated PDF-space bboxes
+                    self.selected_regions = updated
+                    print("Final BBoxes (PDF space):")
+                    for field, bbox in self.selected_regions.items():
+                        print(f"  {field}: {bbox}")
             except Exception as e:
                 messagebox.showerror("Load Error", f"Failed to load JSON: {e}")
         else:
@@ -77,6 +119,8 @@ class PDFRegionSelector:
     def load_page_image(self):
         # Render upright pixmap (derotate for display)
         mat = fitz.Matrix(self.scale, self.scale).prerotate(-self.rot)  # Derotate explicitly
+        # store the matrix used for rendering so we can map coordinates back/forth
+        self.render_mat = mat
         pix = self.page.get_pixmap(matrix=mat)
         img_data = pix.tobytes("png")
         self.page_image = Image.open(io.BytesIO(img_data))
@@ -137,26 +181,23 @@ class PDFRegionSelector:
         canvas_y0_canvas = min(self.start_y, end_y)  # Top in canvas
         canvas_x1 = max(self.start_x, end_x)
         canvas_y1_canvas = max(self.start_y, end_y)  # Bottom in canvas
-        
-        # Scale to points
-        pt_x0 = canvas_x0 / self.scale
-        pt_y0_canvas = canvas_y0_canvas / self.scale  # From top
-        pt_x1 = canvas_x1 / self.scale
-        pt_y1_canvas = canvas_y1_canvas / self.scale
-        
-        # Transform to PDF space using page.transformation_matrix (handles rotation)
-        trans_mat = self.page.transformation_matrix
-        # Transform top-left and bottom-right points
-        pt_tl = fitz.Point(pt_x0, pt_y0_canvas)
-        pt_br = fitz.Point(pt_x1, pt_y1_canvas)
-        pdf_tl = pt_tl * trans_mat
-        pdf_br = pt_br * trans_mat
+        # Map canvas pixel coordinates back to PDF point coordinates using
+        # the inverse of the render matrix used for the pixmap
+        if not self.render_mat:
+            messagebox.showerror("Matrix Error", "Render matrix not initialized.")
+            return
+        # invert() mutates a Matrix in-place and returns an int; copy then invert the copy
+        inv_mat = fitz.Matrix(self.render_mat)
+        inv_mat.invert()
+        # Points supplied to fitz should be in the same units as the pixmap (pixels)
+        pt_tl = fitz.Point(canvas_x0, canvas_y0_canvas) * inv_mat
+        pt_br = fitz.Point(canvas_x1, canvas_y1_canvas) * inv_mat
         
         # Bbox in PDF space (min/max after transform)
-        pdf_x0 = min(pdf_tl.x, pdf_br.x)
-        pdf_y0 = min(pdf_tl.y, pdf_br.y)
-        pdf_x1 = max(pdf_tl.x, pdf_br.x)
-        pdf_y1 = max(pdf_tl.y, pdf_br.y)
+        pdf_x0 = min(pt_tl.x, pt_br.x)
+        pdf_y0 = min(pt_tl.y, pt_br.y)
+        pdf_x1 = max(pt_tl.x, pt_br.x)
+        pdf_y1 = max(pt_tl.y, pt_br.y)
         
         bbox = (pdf_x0, pdf_y0, pdf_x1, pdf_y1)
         self.selected_regions[self.current_field] = bbox
@@ -181,17 +222,19 @@ class PDFRegionSelector:
             self.current_field = None
     
     def redraw_regions(self):
-        trans_mat_inv = self.page.transformation_matrix.invert()  # Fixed: invert() not inverted()
-        page_height = self.page.rect.height
+        # Map saved PDF bboxes to canvas pixels using the same render matrix
+        if not self.render_mat:
+            return
+        mat = self.render_mat
         for field, bbox in self.selected_regions.items():
             x0, y0, x1, y1 = bbox
-            # Transform bbox corners back to canvas space
-            pt_bl = fitz.Point(x0, y0) * trans_mat_inv
-            pt_tr = fitz.Point(x1, y1) * trans_mat_inv
-            canvas_x0 = min(pt_bl.x, pt_tr.x) * self.scale
-            canvas_y0_canvas = min(pt_bl.y, pt_tr.y) * self.scale  # Top
-            canvas_x1 = max(pt_bl.x, pt_tr.x) * self.scale
-            canvas_y1_canvas = max(pt_bl.y, pt_tr.y) * self.scale  # Bottom
+            # Transform bbox corners to device/pixmap space
+            pt0 = fitz.Point(x0, y0) * mat
+            pt1 = fitz.Point(x1, y1) * mat
+            canvas_x0 = min(pt0.x, pt1.x)
+            canvas_y0_canvas = min(pt0.y, pt1.y)  # Top
+            canvas_x1 = max(pt0.x, pt1.x)
+            canvas_y1_canvas = max(pt0.y, pt1.y)  # Bottom
             rect_id = self.canvas.create_rectangle(canvas_x0, canvas_y0_canvas, canvas_x1, canvas_y1_canvas, outline='blue', width=1, dash=(10, 5))
             self.existing_rects[field] = rect_id
             self.canvas.create_text((canvas_x0 + canvas_x1)/2, canvas_y0_canvas - 10, text=field, fill='blue')

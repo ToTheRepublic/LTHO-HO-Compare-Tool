@@ -33,11 +33,51 @@ def extract_text_from_bbox(page, bbox):
     if not bbox:
         return ""
     crop_box = fitz.Rect(bbox)
+    # Default behavior: use PyMuPDF's get_text on the clip
     text = page.get_text(clip=crop_box).strip()
     cleaned = re.sub(r'\s+', ' ', text)
     return cleaned
 
-def quick_test_parse_pdf(pdf_path, regions_json='selected_regions.json', output_csv='extraction_results.csv'):
+
+def extract_text_from_bbox_strict(page, bbox):
+    """
+    Strict extraction: only include words whose center point lies inside the bbox.
+    This avoids capturing words that only barely clip into the selection.
+    Returns a space-joined string of the selected words (preserves word order by sorting by y,x).
+    """
+    if not bbox:
+        return ""
+    rect = fitz.Rect(bbox)
+    # get words: list of tuples (x0, y0, x1, y1, word, block_no, line_no, word_no)
+    words = page.get_text("words")
+    # filter words whose center is inside rect
+    selected = []
+    for w in words:
+        x0, y0, x1, y1, word_text = w[0], w[1], w[2], w[3], w[4]
+        cx = (x0 + x1) / 2.0
+        cy = (y0 + y1) / 2.0
+        if rect.contains(fitz.Point(cx, cy)):
+            # store sorting keys to preserve reading order
+            selected.append((y0, x0, word_text))
+    # sort by top-to-bottom, left-to-right
+    selected.sort()
+    out = " ".join([w[2] for w in selected])
+    # collapse runs of identical consecutive words (e.g., 'WORD WORD' -> 'WORD')
+    if out:
+        toks = out.split()
+        # collapse exact consecutive duplicates
+        import itertools
+        toks = [k for k,_ in itertools.groupby(toks)]
+        # if the sequence is exactly two identical halves (entire name duplicated), collapse
+        if len(toks) % 2 == 0 and len(toks) > 1:
+            half = toks[:len(toks)//2]
+            if half == toks[len(toks)//2:]:
+                toks = half
+        out = ' '.join(toks)
+    cleaned = re.sub(r'\s+', ' ', out).strip()
+    return cleaned
+
+def quick_test_parse_pdf(pdf_path, regions_json='selected_regions.json', output_csv='extraction_results.csv', strict=False):
     """
     Test parser: Load bboxes from JSON and parse first 100 pages.
     Extracts text from each region's bbox on every page.
@@ -59,7 +99,10 @@ def quick_test_parse_pdf(pdf_path, regions_json='selected_regions.json', output_
         
         for field in field_names:
             bbox = regions.get(field)
-            extracted = extract_text_from_bbox(page, bbox)
+            if strict:
+                extracted = extract_text_from_bbox_strict(page, bbox)
+            else:
+                extracted = extract_text_from_bbox(page, bbox)
             row[field] = extracted.strip()
         
         results.append(row)
@@ -69,18 +112,28 @@ def quick_test_parse_pdf(pdf_path, regions_json='selected_regions.json', output_
     
     # Write to CSV
     if results:
-        with open(output_csv, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=['Page'] + field_names)
-            writer.writeheader()
-            writer.writerows(results)
-        print(f"\nResults saved to {output_csv} ({len(results)} rows)")
+        try:
+            with open(output_csv, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=['Page'] + field_names)
+                writer.writeheader()
+                writer.writerows(results)
+            print(f"\nResults saved to {output_csv} ({len(results)} rows)")
+        except PermissionError:
+            import datetime
+            fallback = f"extraction_results_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            with open(fallback, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=['Page'] + field_names)
+                writer.writeheader()
+                writer.writerows(results)
+            print(f"\nPermission denied writing {output_csv}. Saved to {fallback} instead ({len(results)} rows)")
     
     return results
 
 # Example usage: Replace with your PDF path
 if __name__ == "__main__":
     pdf_file = r"C:/Users/philliph/Desktop/Tools/2025FremontNOV.pdf"  # Update this
-    test_results = quick_test_parse_pdf(pdf_file)
+    # Set strict=True to only include words whose centers lie inside the bbox
+    test_results = quick_test_parse_pdf(pdf_file, strict=True)
     
     if test_results:
         print("\nSample rows:")
