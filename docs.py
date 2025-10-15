@@ -591,12 +591,22 @@ with tab2:
                 st.write(f"**PDF:** {pdf_status}")
                 uploaded_pdf = st.file_uploader(f"Replace {doc_type} PDF", type=['pdf'], key=f"{doc_type.replace(' ', '_').lower()}_pdf_replace_{county}")
                 if uploaded_pdf is not None:
-                    pdf_path = get_doc_path(county_dir, doc_type, "pdf")
-                    with open(pdf_path, "wb") as f:
-                        f.write(uploaded_pdf.getbuffer())
-                    st.success(f"{doc_type} PDF replaced!")
-                    st.session_state.docs_indexed[doc_type] = False  # Mark as needs re-index
-                    st.rerun()
+                    try:
+                        pdf_path = get_doc_path(county_dir, doc_type, "pdf")
+                        with open(pdf_path, "wb") as f:
+                            # Chunked write for large files to avoid memory spikes
+                            buffer = uploaded_pdf.getbuffer()
+                            chunk_size = 1024 * 1024  # 1MB chunks
+                            for i in range(0, len(buffer), chunk_size):
+                                f.write(buffer[i:i + chunk_size])
+                        st.success(f"{doc_type} PDF replaced!")
+                        st.session_state.docs_indexed[doc_type] = False
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Upload failed: {str(e)}")
+                        # Log to file for EC2 debugging
+                        with open("/tmp/streamlit_upload_error.log", "a") as logf:
+                            logf.write(f"{datetime.now()}: {str(e)}\n")
                 
                 # Excel Status and Replace
                 excel_status = get_file_status(county_dir, doc_type, "xlsx")
