@@ -48,6 +48,9 @@ SUBDOMAIN_TO_COUNTY = {
     'weston': 'Weston'
 }
 
+import time
+st.write(f"Rerun at {time.strftime('%H:%M:%S')}")
+
 # Detect subdomain via JS and set county (no cache - called once per run)
 def detect_county():
     try:
