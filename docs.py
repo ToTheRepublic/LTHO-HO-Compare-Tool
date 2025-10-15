@@ -87,8 +87,8 @@ def detect_county():
 # Early session state init for county (avoids flash)
 if 'detected_county' not in st.session_state:
     st.session_state.detected_county = None
-if 'uploading' not in st.session_state:  # Add lock/flag for upload
-    st.session_state.uploading = False
+#if 'uploading' not in st.session_state:  # Add lock/flag for upload
+#    st.session_state.uploading = False
 
 # Detect and store county
 if st.session_state.detected_county is None:
@@ -613,14 +613,20 @@ with tab2:
                 # Excel Status and Replace
                 excel_status = get_file_status(county_dir, doc_type, "xlsx")
                 st.write(f"**Excel:** {excel_status}")
+                upload_status_excel = st.empty()  # For dynamic feedback
                 uploaded_excel = st.file_uploader(f"Replace {doc_type} Excel", type=['xlsx', 'xls'], key=f"{doc_type.replace(' ', '_').lower()}_excel_replace_{county}")
                 if uploaded_excel is not None:
-                    excel_path = get_doc_path(county_dir, doc_type, "xlsx")
-                    with open(excel_path, "wb") as f:
-                        f.write(uploaded_excel.getbuffer())
-                    st.success(f"{doc_type} Excel replaced!")
-                    st.session_state.docs_indexed[doc_type] = False  # Mark as needs re-index
-                    st.rerun()
+                    upload_status_excel.text("Uploading...")
+                    try:
+                        excel_path = get_doc_path(county_dir, doc_type, "xlsx")
+                        with open(excel_path, "wb") as f:
+                            shutil.copyfileobj(uploaded_excel, f, length=1024 * 1024)
+                        upload_status_excel.success(f"{doc_type} Excel replaced!")
+                        st.session_state.docs_indexed[doc_type] = False  # Mark as needs re-index
+                    except Exception as e:
+                        upload_status_excel.error(f"Upload failed: {str(e)}")
+                        with open("/tmp/streamlit_upload_error.log", "a") as logf:
+                            logf.write(f"{datetime.now()}: {str(e)}\n")
                 
                 # Index/Re-Index Button
                 index_text = "Re-Index" if st.session_state.docs_indexed.get(doc_type, False) else "Index"
