@@ -87,13 +87,19 @@ def detect_county():
 # Early session state init for county (avoids flash)
 if 'detected_county' not in st.session_state:
     st.session_state.detected_county = None
-#if 'uploading' not in st.session_state:  # Add lock/flag for upload
-#    st.session_state.uploading = False
+if 'county_detection_attempted' not in st.session_state:
+    st.session_state.county_detection_attempted = False
 
-# Detect and store county
-if st.session_state.detected_county is None:
-    st.session_state.detected_county = detect_county()
-    st.rerun()  # Immediate rerun to apply county-specific title/config
+# Detect and store county (only attempt once to avoid infinite loop)
+if st.session_state.detected_county is None and not st.session_state.county_detection_attempted:
+    st.session_state.county_detection_attempted = True
+    detected = detect_county()
+    if detected:
+        st.session_state.detected_county = detected
+        st.rerun()  # Only rerun if we actually detected a county
+    else:
+        # Set a default for testing when accessed via IP
+        st.session_state.detected_county = "Test"  # or None for no access
 
 county = st.session_state.detected_county
 
