@@ -90,7 +90,7 @@ def quick_test_parse_pdf(pdf_path, regions_json='selected_regions.json', output_
     doc = fitz.open(pdf_path)
     results = []
     
-    max_pages = min(100, len(doc))
+    max_pages = min(doc.page_count, len(doc))
     field_names = list(regions.keys())
     
     for page_num in range(max_pages):
@@ -106,7 +106,6 @@ def quick_test_parse_pdf(pdf_path, regions_json='selected_regions.json', output_
             row[field] = extracted.strip()
         
         results.append(row)
-        print(f"Processed Page {page_num + 1}: { {k: v[:50] + '...' if len(v) > 50 else v for k, v in row.items() if k != 'Page'} }")
     
     doc.close()
     

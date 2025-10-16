@@ -22,7 +22,7 @@ class PDFRegionSelector:
         self.render_mat = None
         self.selected_regions = {}
         
-        self.fields = ['ACCOUNTNO', 'NAME1', 'ADDRESS']
+        self.fields = ['ACCOUNTNO', 'NAME1', 'ADDRESS', 'Local Number', 'BUSINESSNAME']
         self.current_field = None
         self.start_x = self.start_y = 0
         self.rect = None

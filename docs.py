@@ -200,7 +200,7 @@ def extract_info_from_text(text, search_type):
 def index_pdf(pdf_path, excel_path, search_type):
     index_data = {}
     first_page = {}
-    debug_accounts = ["R0007425", "P0007419"]
+    debug_accounts = []
 
     excel_df = None
     if pd is not None and excel_path and os.path.isfile(excel_path):
@@ -230,6 +230,7 @@ def index_pdf(pdf_path, excel_path, search_type):
                 ownership_name = ""
                 property_address = ""
                 business_name = ""
+                local_number = ""
                 if excel_df is not None and account in excel_df.index:
                     row = excel_df.loc[account]
                     ownership_name = str(row.get('NAME1', '')) if pd.notna(row.get('NAME1')) else ""
