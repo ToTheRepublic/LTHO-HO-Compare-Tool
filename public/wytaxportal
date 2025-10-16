@@ -60,7 +60,7 @@ server {
 
     # Direct proxy to Streamlit app (no /search path needed)
     location / {
-        proxy_pass http://127.0.0.1:8503;
+        proxy_pass http://0.0.0.0:8503;
         proxy_http_version 1.1;
         
         # Essential for Streamlit WebSockets
