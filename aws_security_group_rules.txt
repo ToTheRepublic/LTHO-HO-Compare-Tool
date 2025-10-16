@@ -1,0 +1,24 @@
+# AWS Security Group Rules needed:
+
+# For testing (temporary):
+Type: Custom TCP
+Port: 8503
+Source: 0.0.0.0/0 (anywhere) - ONLY FOR TESTING
+
+# For production (after nginx is working):
+Type: Custom TCP  
+Port: 8503
+Source: sg-xxxxx (same security group) - INTERNAL ONLY
+
+# Always needed:
+Type: HTTP
+Port: 80
+Source: 0.0.0.0/0
+
+Type: HTTPS  
+Port: 443
+Source: 0.0.0.0/0
+
+Type: SSH
+Port: 22
+Source: Your IP only
