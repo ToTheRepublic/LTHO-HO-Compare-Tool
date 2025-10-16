@@ -650,6 +650,8 @@ with tab2:
                 # PDF Status and Replace
                 pdf_status = get_file_status(county_dir, doc_type, "pdf")
                 st.write(f"**PDF:** {pdf_status}")
+                
+                # PDF Upload
                 upload_status = st.empty()  # For dynamic feedback
                 uploaded_pdf = st.file_uploader(f"Replace {doc_type} PDF", type=['pdf'], key=f"{doc_type.replace(' ', '_').lower()}_pdf_replace_{county}")
                 if uploaded_pdf is not None:
@@ -665,9 +667,41 @@ with tab2:
                         with open("/tmp/streamlit_upload_error.log", "a") as logf:
                             logf.write(f"{datetime.now()}: {str(e)}\n")
                 
+                # PDF Delete Button with confirmation
+                pdf_path = get_doc_path(county_dir, doc_type, "pdf")
+                if os.path.exists(pdf_path):
+                    # Add confirmation state to session state if not exists
+                    confirm_key = f"confirm_delete_pdf_{doc_type}_{county}"
+                    if confirm_key not in st.session_state:
+                        st.session_state[confirm_key] = False
+                    
+                    if not st.session_state[confirm_key]:
+                        if st.button(f"🗑️ Delete {doc_type} PDF", key=f"delete_pdf_{doc_type}_{county}", help="Permanently delete this PDF file"):
+                            st.session_state[confirm_key] = True
+                            st.rerun()
+                    else:
+                        st.warning(f"⚠️ Are you sure you want to delete the {doc_type} PDF? This cannot be undone!")
+                        col_confirm1, col_confirm2 = st.columns(2)
+                        with col_confirm1:
+                            if st.button(f"✅ Yes, Delete", key=f"confirm_yes_pdf_{doc_type}_{county}"):
+                                try:
+                                    os.remove(pdf_path)
+                                    st.session_state.docs_indexed[doc_type] = False  # Mark as needs re-index
+                                    st.session_state[confirm_key] = False  # Reset confirmation
+                                    st.success(f"{doc_type} PDF deleted successfully!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Failed to delete PDF: {str(e)}")
+                        with col_confirm2:
+                            if st.button(f"❌ Cancel", key=f"confirm_no_pdf_{doc_type}_{county}"):
+                                st.session_state[confirm_key] = False
+                                st.rerun()
+                
                 # Excel Status and Replace
                 excel_status = get_file_status(county_dir, doc_type, "xlsx")
                 st.write(f"**Excel:** {excel_status}")
+                
+                # Excel Upload
                 upload_status_excel = st.empty()  # For dynamic feedback
                 uploaded_excel = st.file_uploader(f"Replace {doc_type} Excel", type=['xlsx', 'xls'], key=f"{doc_type.replace(' ', '_').lower()}_excel_replace_{county}")
                 if uploaded_excel is not None:
@@ -683,34 +717,80 @@ with tab2:
                         with open("/tmp/streamlit_upload_error.log", "a") as logf:
                             logf.write(f"{datetime.now()}: {str(e)}\n")
                 
-                # Index/Re-Index Button
-                index_text = "Re-Index" if st.session_state.docs_indexed.get(doc_type, False) else "Index"
-                if st.button(f"{index_text} {doc_type}", key=f"index_{doc_type}_{county}"):
-                    pdf_path = get_doc_path(county_dir, doc_type, "pdf")
-                    excel_path = get_doc_path(county_dir, doc_type, "xlsx")
-                    if os.path.exists(pdf_path):
-                        # Create progress bar
-                        progress_placeholder = st.empty()
-                        progress_bar = progress_placeholder.progress(0, text=f"Starting to index {doc_type}...")
-                        
-                        try:
-                            index_data = index_pdf_with_progress(
-                                pdf_path, 
-                                excel_path if os.path.exists(excel_path) else None, 
-                                doc_type, 
-                                progress_bar
-                            )
-                            progress_bar.progress(1.0, text="Saving index...")
-                            save_index(county_dir, doc_type, index_data)
-                            st.session_state.docs_indexed[doc_type] = True
-                            progress_placeholder.empty()  # Remove progress bar
-                            st.success(f"{doc_type} indexed successfully!")
+                # Excel Delete Button with confirmation
+                excel_path = get_doc_path(county_dir, doc_type, "xlsx")
+                if os.path.exists(excel_path):
+                    # Add confirmation state to session state if not exists
+                    confirm_key = f"confirm_delete_excel_{doc_type}_{county}"
+                    if confirm_key not in st.session_state:
+                        st.session_state[confirm_key] = False
+                    
+                    if not st.session_state[confirm_key]:
+                        if st.button(f"🗑️ Delete {doc_type} Excel", key=f"delete_excel_{doc_type}_{county}", help="Permanently delete this Excel file"):
+                            st.session_state[confirm_key] = True
                             st.rerun()
-                        except Exception as e:
-                            progress_placeholder.empty()  # Remove progress bar on error
-                            st.error(f"Indexing failed: {str(e)}")
                     else:
-                        st.warning(f"Please upload {doc_type} PDF first.")
+                        st.warning(f"⚠️ Are you sure you want to delete the {doc_type} Excel? This cannot be undone!")
+                        col_confirm1, col_confirm2 = st.columns(2)
+                        with col_confirm1:
+                            if st.button(f"✅ Yes, Delete", key=f"confirm_yes_excel_{doc_type}_{county}"):
+                                try:
+                                    os.remove(excel_path)
+                                    st.session_state.docs_indexed[doc_type] = False  # Mark as needs re-index
+                                    st.session_state[confirm_key] = False  # Reset confirmation
+                                    st.success(f"{doc_type} Excel deleted successfully!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Failed to delete Excel: {str(e)}")
+                        with col_confirm2:
+                            if st.button(f"❌ Cancel", key=f"confirm_no_excel_{doc_type}_{county}"):
+                                st.session_state[confirm_key] = False
+                                st.rerun()
+                
+                # Index/Re-Index and Delete Index Buttons
+                col_idx1, col_idx2 = st.columns(2)
+                
+                with col_idx1:
+                    index_text = "Re-Index" if st.session_state.docs_indexed.get(doc_type, False) else "Index"
+                    if st.button(f"{index_text} {doc_type}", key=f"index_{doc_type}_{county}"):
+                        pdf_path = get_doc_path(county_dir, doc_type, "pdf")
+                        excel_path = get_doc_path(county_dir, doc_type, "xlsx")
+                        if os.path.exists(pdf_path):
+                            # Create progress bar
+                            progress_placeholder = st.empty()
+                            progress_bar = progress_placeholder.progress(0, text=f"Starting to index {doc_type}...")
+                            
+                            try:
+                                index_data = index_pdf_with_progress(
+                                    pdf_path, 
+                                    excel_path if os.path.exists(excel_path) else None, 
+                                    doc_type, 
+                                    progress_bar
+                                )
+                                progress_bar.progress(1.0, text="Saving index...")
+                                save_index(county_dir, doc_type, index_data)
+                                st.session_state.docs_indexed[doc_type] = True
+                                progress_placeholder.empty()  # Remove progress bar
+                                st.success(f"{doc_type} indexed successfully!")
+                                st.rerun()
+                            except Exception as e:
+                                progress_placeholder.empty()  # Remove progress bar on error
+                                st.error(f"Indexing failed: {str(e)}")
+                        else:
+                            st.warning(f"Please upload {doc_type} PDF first.")
+                
+                with col_idx2:
+                    # Delete Index Button
+                    index_path = get_doc_path(county_dir, doc_type, "json")
+                    if os.path.exists(index_path):
+                        if st.button(f"🗑️ Clear {doc_type} Index", key=f"delete_index_{doc_type}_{county}", help="Delete the search index (keeps files)"):
+                            try:
+                                os.remove(index_path)
+                                st.session_state.docs_indexed[doc_type] = False
+                                st.success(f"{doc_type} index cleared!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Failed to clear index: {str(e)}")
 
     # Check indexing status
     st.subheader("📊 Indexing Status")
@@ -744,3 +824,68 @@ with tab2:
         st.success(f"🎉 **All document types indexed!** You can search across all {len(DOC_TYPES)} document types.")
     else:
         st.info(f"📈 **{indexed_count} of {len(DOC_TYPES)} document types indexed.** You can search the indexed types and add more anytime.")
+    
+    # Bulk Actions
+    if indexed_count > 0:
+        with st.expander("🔧 Bulk Actions", expanded=False):
+            col_bulk1, col_bulk2 = st.columns(2)
+            
+            with col_bulk1:
+                st.write("**Clear All Indexes:**")
+                if st.button("🗑️ Clear All Indexes", key=f"clear_all_indexes_{county}", help="Remove all search indexes (keeps PDF/Excel files)"):
+                    cleared_count = 0
+                    for doc_type in DOC_TYPES:
+                        index_file = get_doc_path(county_dir, doc_type, "json")
+                        if os.path.exists(index_file):
+                            try:
+                                os.remove(index_file)
+                                st.session_state.docs_indexed[doc_type] = False
+                                cleared_count += 1
+                            except Exception as e:
+                                st.error(f"Failed to clear {doc_type} index: {str(e)}")
+                    if cleared_count > 0:
+                        st.success(f"Cleared {cleared_count} index(es) successfully!")
+                        st.rerun()
+            
+            with col_bulk2:
+                st.write("**Delete All Files:**")
+                if st.button("⚠️ Delete All Files", key=f"delete_all_files_{county}", help="PERMANENTLY delete all PDF, Excel, and index files"):
+                    deleted_files = 0
+                    for doc_type in DOC_TYPES:
+                        # Delete PDF
+                        pdf_path = get_doc_path(county_dir, doc_type, "pdf")
+                        if os.path.exists(pdf_path):
+                            try:
+                                os.remove(pdf_path)
+                                deleted_files += 1
+                            except Exception as e:
+                                st.error(f"Failed to delete {doc_type} PDF: {str(e)}")
+                        
+                        # Delete Excel
+                        excel_path = get_doc_path(county_dir, doc_type, "xlsx")
+                        if os.path.exists(excel_path):
+                            try:
+                                os.remove(excel_path)
+                                deleted_files += 1
+                            except Exception as e:
+                                st.error(f"Failed to delete {doc_type} Excel: {str(e)}")
+                        
+                        # Delete Index
+                        index_path = get_doc_path(county_dir, doc_type, "json")
+                        if os.path.exists(index_path):
+                            try:
+                                os.remove(index_path)
+                                deleted_files += 1
+                            except Exception as e:
+                                st.error(f"Failed to delete {doc_type} index: {str(e)}")
+                        
+                        # Reset session state
+                        st.session_state.docs_indexed[doc_type] = False
+                    
+                    if deleted_files > 0:
+                        st.success(f"Deleted {deleted_files} file(s) successfully!")
+                        st.rerun()
+                    else:
+                        st.info("No files found to delete.")
+            
+            st.warning("⚠️ **Important:** Delete operations are permanent and cannot be undone!")
