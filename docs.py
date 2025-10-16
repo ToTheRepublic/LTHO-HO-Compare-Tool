@@ -198,6 +198,11 @@ def extract_info_from_text(text, search_type):
 
 @st.cache_data
 def index_pdf(pdf_path, excel_path, search_type):
+    """Cached version for backward compatibility"""
+    return index_pdf_with_progress(pdf_path, excel_path, search_type, None)
+
+def index_pdf_with_progress(pdf_path, excel_path, search_type, progress_bar=None):
+    """Index PDF with optional progress bar display"""
     index_data = {}
     first_page = {}
     debug_accounts = []
@@ -217,7 +222,13 @@ def index_pdf(pdf_path, excel_path, search_type):
     try:
         doc = fitz.open(pdf_path)
         total_pages = len(doc)
+        
         for page_num in range(total_pages):
+            # Update progress bar if provided
+            if progress_bar is not None:
+                progress = (page_num + 1) / total_pages
+                progress_bar.progress(progress, text=f"Processing page {page_num + 1} of {total_pages}")
+            
             text = doc[page_num].get_text()
             if not text:
                 continue
@@ -486,7 +497,7 @@ with tab1:
     if all(st.session_state.docs_indexed.get(doc_type, False) for doc_type in DOC_TYPES):
         with st.form("search_form"):
             type_var = st.selectbox("Document Type:", DOC_TYPES, key="doc_type")
-            query = st.text_input("Search (Account/Local/Name/Address):", key="search_query", placeholder="e.g., R0001234 or 1234 or 'Smith' or 'Main St'")
+            query = st.text_input("Search (Account/Local/Name/Address):", key="search_query", placeholder="Minimum 3 characters. e.g., R0001234 or 1234 or 'Smith' or 'Main St'")
             submitted = st.form_submit_button("Search Matches")
 
         # Define pdf_path here so it's always available (uses current type_var)
@@ -495,17 +506,21 @@ with tab1:
             st.warning("PDF not found. Please upload in Settings.")
 
         if submitted:
-            index_data = load_index(county_dir, type_var)
-            with st.spinner("Searching..."):
-                results = search_matches(index_data, query, type_var)
-                if not results:
-                    st.error("No matches found.")
-                    st.session_state.search_results = None
-                else:
-                    st.success(f"Found {len(results)} match(es).")
-                    st.session_state.search_results = results
-                    st.session_state.selected_res = None  # Reset selection
-            st.rerun()
+            # Validate minimum search length
+            if len(query.strip()) < 3:
+                st.error("Please enter at least 3 characters to search.")
+            else:
+                index_data = load_index(county_dir, type_var)
+                with st.spinner("Searching..."):
+                    results = search_matches(index_data, query, type_var)
+                    if not results:
+                        st.error("No matches found.")
+                        st.session_state.search_results = None
+                    else:
+                        st.success(f"Found {len(results)} match(es).")
+                        st.session_state.search_results = results
+                        st.session_state.selected_res = None  # Reset selection
+                st.rerun()
 
         # Display results as radio list if available
         if st.session_state.search_results:
@@ -628,12 +643,26 @@ with tab2:
                     pdf_path = get_doc_path(county_dir, doc_type, "pdf")
                     excel_path = get_doc_path(county_dir, doc_type, "xlsx")
                     if os.path.exists(pdf_path):
-                        with st.spinner(f"Indexing {doc_type}..."):
-                            index_data = index_pdf(pdf_path, excel_path if os.path.exists(excel_path) else None, doc_type)
+                        # Create progress bar
+                        progress_placeholder = st.empty()
+                        progress_bar = progress_placeholder.progress(0, text=f"Starting to index {doc_type}...")
+                        
+                        try:
+                            index_data = index_pdf_with_progress(
+                                pdf_path, 
+                                excel_path if os.path.exists(excel_path) else None, 
+                                doc_type, 
+                                progress_bar
+                            )
+                            progress_bar.progress(1.0, text="Saving index...")
                             save_index(county_dir, doc_type, index_data)
                             st.session_state.docs_indexed[doc_type] = True
+                            progress_placeholder.empty()  # Remove progress bar
                             st.success(f"{doc_type} indexed successfully!")
                             st.rerun()
+                        except Exception as e:
+                            progress_placeholder.empty()  # Remove progress bar on error
+                            st.error(f"Indexing failed: {str(e)}")
                     else:
                         st.warning(f"Please upload {doc_type} PDF first.")
 
