@@ -68,8 +68,13 @@ def detect_county():
         if not host:
             raise ValueError("No host available in request")
         
-        if 'assessortools.com' not in host:
-            raise ValueError(f"Invalid host '{host}' (must include 'assessortools.com')")
+        # Handle IP addresses for testing (return test county)
+        if host.replace('.', '').replace(':', '').isdigit() or 'localhost' in host or '127.0.0.1' in host:
+            return "Albany"  # Default test county for IP access
+        
+        # Check for correct domain
+        if 'wydocsportal.com' not in host and 'assessortools.com' not in host:
+            raise ValueError(f"Invalid host '{host}' (must include 'wydocsportal.com' or 'assessortools.com')")
         
         subdomain = host.split('.')[0]
         county = SUBDOMAIN_TO_COUNTY.get(subdomain)
