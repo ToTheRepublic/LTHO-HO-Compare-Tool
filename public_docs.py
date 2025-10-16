@@ -7,6 +7,7 @@ import io
 import fitz  # PyMuPDF
 import json
 import time
+import shutil
 from datetime import datetime
 import base64
 import urllib.parse
@@ -48,35 +49,64 @@ SUBDOMAIN_TO_COUNTY = {
     'weston': 'Weston'
 }
 
+import time
+st.write(f"Rerun at {time.strftime('%H:%M:%S')}")
+
 # Detect subdomain via JS and set county (no cache - called once per run)
 def detect_county():
     try:
-        # JS expression to get subdomain (first part of hostname) - no 'return' needed
-        subdomain = st_js.st_javascript("window.location.hostname.split('.')[0]")
-        county = SUBDOMAIN_TO_COUNTY.get(subdomain.lower(), WY_COUNTIES[0])
-        if subdomain.lower() not in SUBDOMAIN_TO_COUNTY:
-            st.warning(f"Subdomain '{subdomain}' not recognized; defaulting to '{county}'.")
+        import streamlit.runtime as runtime  # Ensure import (add if missing)
+        session_mgr = runtime.get_instance()._session_mgr
+        active_sessions = session_mgr.list_active_sessions()
+        if not active_sessions:
+            raise ValueError("No active session found")
+        
+        # Get the first (typically only) active session's request
+        request = active_sessions[0].client.request
+        host = request.host.lower().strip()  # e.g., 'laramie.assessortools.com'
+        
+        if not host:
+            raise ValueError("No host available in request")
+        
+        if 'assessortools.com' not in host:
+            raise ValueError(f"Invalid host '{host}' (must include 'assessortools.com')")
+        
+        subdomain = host.split('.')[0]
+        county = SUBDOMAIN_TO_COUNTY.get(subdomain)
+        if not county:
+            raise ValueError(f"Subdomain '{subdomain}' from host '{host}' not mapped to a Wyoming county")
+        
         return county
-    except:
-        # Fallback if JS fails
-        return ""#WY_COUNTIES[0]
+    except Exception as e:
+        st.error(f"County detection failed: {str(e)}")
+        st.info("Please access the app via a valid subdomain (e.g., https://laramie.assessortools.com).")
+        return None
 
-county = detect_county()
+# county = detect_county()
 
 # Early session state init for county (avoids flash)
 if 'detected_county' not in st.session_state:
     st.session_state.detected_county = None
+#if 'uploading' not in st.session_state:  # Add lock/flag for upload
+#    st.session_state.uploading = False
 
 # Detect and store county
 if st.session_state.detected_county is None:
     st.session_state.detected_county = detect_county()
     st.rerun()  # Immediate rerun to apply county-specific title/config
 
-# county = st.session_state.detected_county
+county = st.session_state.detected_county
+
+if county is None:
+    st.stop()  # Or st.error("No county detected—exiting.") if you prefer a message before stop
 
 # Now set county-specific title/config on rerun (overrides placeholder)
-st.set_page_config(page_title=f"Document Search Tool - {county} County", layout="wide")
-st.title(f"{county} Document Search Tool")
+if county:
+    st.set_page_config(page_title=f"Property Document Portal - {county} County", layout="wide")
+    st.title(f"🏠 {county} County Property Document Portal")
+    st.markdown("**Access your property assessment and tax documents**")
+else:
+    st.title("🏠 Property Document Portal (No County)")
 
 # Document types
 DOC_TYPES = ["Notice of Value", "Declaration", "Tax Notice"]
@@ -107,7 +137,7 @@ def extract_nov_info(text):
 
     normalized_lines = [re.sub(r'\s+', ' ', line).strip() for line in lines]
 
-    account_pattern = re.compile(r'[RMPO]000\d{4,5}', re.I)
+    account_pattern = re.compile(r'[RMPO]\d{7}', re.I)
     account_index = -1
     for i, line in enumerate(normalized_lines):
         match = account_pattern.search(line)
@@ -128,7 +158,7 @@ def extract_declaration_info(text):
     account = ""
     local_number = ""
 
-    acc_pattern = re.compile(r'[RMPO]000\d{4,5}', re.I)
+    acc_pattern = re.compile(r'[RMPO]\d{7}', re.I)
     for line in lines:
         acc_match = acc_pattern.search(line)
         if acc_match:
@@ -150,7 +180,7 @@ def extract_tax_notice_info(text):
 
     for line in lines:
         if "LOCAL/REALWARE ID #" in line:
-            id_match = re.search(r'LOCAL/REALWARE ID #\s*(\d+)/([RMPO]000\d{4,5})', line, re.I)
+            id_match = re.search(r'LOCAL/REALWARE ID #\s*(\d+)/([RMPO]\d{7})', line, re.I)
             if id_match:
                 local_number = id_match.group(1).lstrip('0').zfill(4)
                 account = id_match.group(2).upper()
@@ -169,15 +199,20 @@ def extract_info_from_text(text, search_type):
 
 @st.cache_data
 def index_pdf(pdf_path, excel_path, search_type):
+    """Cached version for backward compatibility"""
+    return index_pdf_with_progress(pdf_path, excel_path, search_type, None)
+
+def index_pdf_with_progress(pdf_path, excel_path, search_type, progress_bar=None):
+    """Index PDF with optional progress bar display"""
     index_data = {}
     first_page = {}
-    debug_accounts = ["R0007425", "P0007419"]
+    debug_accounts = []
 
     excel_df = None
     if pd is not None and excel_path and os.path.isfile(excel_path):
         try:
             excel_df = pd.read_excel(excel_path, engine='openpyxl')
-            required_columns = ['ACCOUNTNO', 'NAME1', 'BUSINESSNAME', 'PREDIRECTION', 'STREETNO', 'POSTDIRECTION', 'STREETNAME', 'STREETTYPE']
+            required_columns = ['ACCOUNTNO', 'NAME1', 'ADDRESS']
             if all(col in excel_df.columns for col in required_columns):
                 excel_df.set_index('ACCOUNTNO', inplace=True)
             else:
@@ -188,53 +223,79 @@ def index_pdf(pdf_path, excel_path, search_type):
     try:
         doc = fitz.open(pdf_path)
         total_pages = len(doc)
+        
         for page_num in range(total_pages):
-            text = doc[page_num].get_text()
-            if not text:
+            try:
+                # Update progress bar if provided
+                if progress_bar is not None:
+                    progress = (page_num + 1) / total_pages
+                    progress_bar.progress(progress, text=f"Processing page {page_num + 1} of {total_pages}")
+                
+                text = doc[page_num].get_text()
+                if not text:
+                    continue
+                account, local_number = extract_info_from_text(text, search_type)
+                
+                if account in debug_accounts:
+                    st.write(f"Debug for {account} on page {page_num + 1}")
+
+                if account:
+                    ownership_name = ""
+                    property_address = ""
+                    business_name = ""
+                    local_number = ""
+                    if excel_df is not None and account in excel_df.index:
+                        try:
+                            row = excel_df.loc[account]
+                            # Handle case where there are duplicate account numbers (returns Series)
+                            if isinstance(row, pd.Series):
+                                # Single row found
+                                ownership_name = str(row.get('NAME1', '')) if pd.notna(row.get('NAME1')) else ""
+                                property_address = str(row.get('ADDRESS', '')) if pd.notna(row.get('ADDRESS')) else ""
+                                business_name = str(row.get('BUSINESSNAME', '')) if pd.notna(row.get('BUSINESSNAME')) else ""
+                                excel_local_number = str(row.get('Local Number', '')) if pd.notna(row.get('Local Number')) else ""
+                            else:
+                                # Multiple rows found (DataFrame), take the first one
+                                first_row = row.iloc[0]
+                                ownership_name = str(first_row.get('NAME1', '')) if pd.notna(first_row.get('NAME1')) else ""
+                                property_address = str(first_row.get('ADDRESS', '')) if pd.notna(first_row.get('ADDRESS')) else ""
+                                business_name = str(first_row.get('BUSINESSNAME', '')) if pd.notna(first_row.get('BUSINESSNAME')) else ""
+                                excel_local_number = str(first_row.get('Local Number', '')) if pd.notna(first_row.get('Local Number')) else ""
+                            
+                            if excel_local_number and re.match(r'^\d{4,6}$', excel_local_number):
+                                local_number = excel_local_number.lstrip('0').zfill(4)
+                        except Exception as excel_error:
+                            # If there's any issue with Excel lookup, continue without it
+                            ownership_name = ""
+                            property_address = ""
+                            business_name = ""
+
+                    if account not in index_data:
+                        index_data[account] = {
+                            "local_number": local_number,
+                            "business_name": business_name,
+                            "address": property_address,
+                            "ownership_name": ownership_name,
+                            "pages": [page_num + 1]
+                        }
+                        first_page[account] = page_num + 1
+                    else:
+                        index_data[account]["pages"].append(page_num + 1)
+                        if page_num + 1 == first_page[account]:
+                            if not index_data[account]["business_name"] and business_name:
+                                index_data[account]["business_name"] = business_name
+                            if not index_data[account]["address"] and property_address:
+                                index_data[account]["address"] = property_address
+                            if not index_data[account]["ownership_name"] and ownership_name:
+                                index_data[account]["ownership_name"] = ownership_name
+            except Exception as page_error:
+                # Continue processing even if a single page fails
+                if progress_bar is not None:
+                    progress = (page_num + 1) / total_pages
+                    progress_bar.progress(progress, text=f"Error on page {page_num + 1}, continuing... ({str(page_error)[:50]})")
+                # Log the error for debugging (you can remove this line if not needed)
+                print(f"Error processing page {page_num + 1}: {str(page_error)}")
                 continue
-            account, local_number = extract_info_from_text(text, search_type)
-            
-            if account in debug_accounts:
-                st.write(f"Debug for {account} on page {page_num + 1}")
-
-            if account:
-                ownership_name = ""
-                property_address = ""
-                business_name = ""
-                if excel_df is not None and account in excel_df.index:
-                    row = excel_df.loc[account]
-                    ownership_name = str(row.get('NAME1', '')) if pd.notna(row.get('NAME1')) else ""
-                    business_name = str(row.get('BUSINESSNAME', '')) if pd.notna(row.get('BUSINESSNAME')) else ""
-                    address_parts = [
-                        str(row.get('PREDIRECTION', '')) if pd.notna(row.get('PREDIRECTION')) else "",
-                        str(row.get('STREETNO', '')) if pd.notna(row.get('STREETNO')) else "",
-                        str(row.get('POSTDIRECTION', '')) if pd.notna(row.get('POSTDIRECTION')) else "",
-                        str(row.get('STREETNAME', '')) if pd.notna(row.get('STREETNAME')) else "",
-                        str(row.get('STREETTYPE', '')) if pd.notna(row.get('STREETTYPE')) else ""
-                    ]
-                    property_address = ' '.join(part for part in address_parts if part)
-                    excel_local_number = str(row.get('Local Number', '')) if pd.notna(row.get('Local Number')) else ""
-                    if excel_local_number and re.match(r'^\d{4,6}$', excel_local_number):
-                        local_number = excel_local_number.lstrip('0').zfill(4)
-
-                if account not in index_data:
-                    index_data[account] = {
-                        "local_number": local_number,
-                        "business_name": business_name,
-                        "address": property_address,
-                        "ownership_name": ownership_name,
-                        "pages": [page_num + 1]
-                    }
-                    first_page[account] = page_num + 1
-                else:
-                    index_data[account]["pages"].append(page_num + 1)
-                    if page_num + 1 == first_page[account]:
-                        if not index_data[account]["business_name"] and business_name:
-                            index_data[account]["business_name"] = business_name
-                        if not index_data[account]["address"] and property_address:
-                            index_data[account]["address"] = property_address
-                        if not index_data[account]["ownership_name"] and ownership_name:
-                            index_data[account]["ownership_name"] = ownership_name
         doc.close()
     except Exception as e:
         st.error(f"Error indexing: {str(e)}")
@@ -257,7 +318,7 @@ def search_matches(index_data, query, search_type):
     results = []
 
     # Exact account match
-    if re.match(r'^[RMPO]000\d{4,5}$', query, re.I):
+    if re.match(r'^[RMPO]\d{7}$', query, re.I):
         q_upper = query.upper()
         if q_upper in index_data:
             data = index_data[q_upper]
@@ -400,13 +461,20 @@ if 'selected_res' not in st.session_state:
     st.session_state.selected_res = None
 if 'clear_password' not in st.session_state:
     st.session_state.clear_password = ""
+if 'admin_authenticated' not in st.session_state:
+    st.session_state.admin_authenticated = False
+if 'show_admin_login' not in st.session_state:
+    st.session_state.show_admin_login = False
 
-st.title(f"WY County Document Search - {county} County")
+st.title(f"Document Search Tool - {county} County")
 county_dir = get_county_path(county)
 
 # Sidebar with county display
 with st.sidebar:
-    st.write(f"**Current County:** {county}")
+    if county:
+        st.write(f"**Current County:** {county}")
+    else:
+        st.error("**No County Detected**")
 
 # Auto-load indexed status from disk
 if county and county_dir:
@@ -451,17 +519,145 @@ with st.sidebar:
                 st.error("Incorrect password. Try again.")
                 st.session_state.clear_password = ""  # Clear input on error
 
-# Tabs
-tab1, tab2 = st.tabs(["Search", "Settings"])
+# Admin Access (Hidden Button - requires 5 clicks)
+admin_placeholder = st.empty()
+if 'admin_clicks' not in st.session_state:
+    st.session_state.admin_clicks = 0
 
-with tab1:
-    st.subheader("Search Documents")
+# Check for admin access
+if st.session_state.admin_clicks >= 5 and not st.session_state.show_admin_login:
+    st.session_state.show_admin_login = True
+    st.session_state.admin_clicks = 0
+
+# Hidden admin button (click county name 5 times)
+with admin_placeholder.container():
+    if st.button(f"📍 {county} County", key="hidden_admin_button", help="Click here to search your property documents"):
+        st.session_state.admin_clicks += 1
+        if st.session_state.admin_clicks >= 5:
+            st.session_state.show_admin_login = True
+
+# Admin login form
+if st.session_state.show_admin_login and not st.session_state.admin_authenticated:
+    with st.expander("🔐 Administrator Access", expanded=True):
+        admin_password = st.text_input("Enter admin password:", type="password", key="admin_pwd")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Login"):
+                if admin_password == "admin123":  # Change this password!
+                    st.session_state.admin_authenticated = True
+                    st.session_state.show_admin_login = False
+                    st.success("Admin access granted!")
+                    st.rerun()
+                else:
+                    st.error("Invalid password")
+        with col2:
+            if st.button("Cancel"):
+                st.session_state.show_admin_login = False
+                st.session_state.admin_clicks = 0
+                st.rerun()
+
+# Show appropriate interface based on authentication
+if st.session_state.admin_authenticated:
+    # Admin interface with tabs
+    tab1, tab2 = st.tabs(["🔍 Document Search", "⚙️ Admin Settings"])
     
-    if all(st.session_state.docs_indexed.get(doc_type, False) for doc_type in DOC_TYPES):
-        with st.form("search_form"):
-            type_var = st.selectbox("Document Type:", DOC_TYPES, key="doc_type")
-            query = st.text_input("Search (Account/Local/Name/Address):", key="search_query", placeholder="e.g., R0001234 or 1234 or 'Smith' or 'Main St'")
-            submitted = st.form_submit_button("Search Matches")
+    with tab1:
+        st.subheader("Document Search (Admin)")
+else:
+    # Public interface - no tabs, just search
+    st.subheader("🔍 Search Your Property Documents")
+    
+    # Welcome message and instructions
+    st.markdown("""
+    **Welcome to the property document portal!** Here you can search for and download your official property documents including:
+    - 🏠 **Property Assessment Notices** (Notice of Value)
+    - 📋 **Property Declaration Forms** 
+    - 💰 **Property Tax Notices**
+    """)
+    
+    with st.expander("ℹ️ How to Search", expanded=False):
+        st.markdown("""
+        **You can search by:**
+        - **Property owner name** (e.g., "John Smith" or just "Smith")
+        - **Property address** (e.g., "123 Main Street" or just "Main")  
+        - **Account number** (if you have it, e.g., "R1234567")
+        
+        **Tips:**
+        - Enter at least 3 characters
+        - Try different spellings if you don't find your property
+        - Use partial names or addresses for better results
+        """)
+    
+    st.markdown("---")
+    
+# Common search functionality for both interfaces
+def render_search_interface(is_admin=False):
+    # Get list of indexed document types
+    indexed_doc_types = [doc_type for doc_type in DOC_TYPES if st.session_state.docs_indexed.get(doc_type, False)]
+    
+    if is_admin:
+        # Show technical status for admins
+        if indexed_doc_types:
+            st.success(f"✅ **Available document types:** {', '.join(indexed_doc_types)}")
+            not_indexed = [doc_type for doc_type in DOC_TYPES if not st.session_state.docs_indexed.get(doc_type, False)]
+            if not_indexed:
+                st.info(f"💭 **Not yet indexed:** {', '.join(not_indexed)} (go to Settings to add these)")
+    else:
+        # Simple user-friendly message for public
+        if not indexed_doc_types:
+            st.warning("📋 **Document search is temporarily unavailable.** Please check back later or contact the assessor's office.")
+            return
+        
+        # User-friendly document type explanation
+        doc_type_names = {
+            "Notice of Value": "Property Assessment Notice",
+            "Declaration": "Property Declaration Form", 
+            "Tax Notice": "Property Tax Notice"
+        }
+        available_docs = [doc_type_names.get(doc, doc) for doc in indexed_doc_types]
+        st.info(f"📄 **Available documents:** {', '.join(available_docs)}")
+    
+    if indexed_doc_types:
+        if is_admin:
+            # Admin interface - show all options
+            with st.form("search_form"):
+                type_var = st.selectbox("Document Type:", indexed_doc_types, key="doc_type")
+                query = st.text_input("Search (Account/Local/Name/Address):", key="search_query", placeholder="Minimum 3 characters. e.g., R0001234 or 1234 or 'Smith' or 'Main St'")
+                submitted = st.form_submit_button("Search Matches")
+        else:
+            # Public interface - simplified
+            with st.form("public_search_form"):
+                st.markdown("**How would you like to search for your property?**")
+                
+                # If only one document type, don't show selector
+                if len(indexed_doc_types) == 1:
+                    type_var = indexed_doc_types[0]
+                    doc_name = {"Notice of Value": "Property Assessment Notice", 
+                               "Declaration": "Property Declaration Form", 
+                               "Tax Notice": "Property Tax Notice"}.get(type_var, type_var)
+                    st.info(f"📄 Searching: {doc_name}")
+                else:
+                    # Show user-friendly names
+                    doc_options = []
+                    doc_mapping = {}
+                    for doc in indexed_doc_types:
+                        friendly_name = {"Notice of Value": "Property Assessment Notice", 
+                                       "Declaration": "Property Declaration Form", 
+                                       "Tax Notice": "Property Tax Notice"}.get(doc, doc)
+                        doc_options.append(friendly_name)
+                        doc_mapping[friendly_name] = doc
+                    
+                    selected_friendly = st.selectbox("📄 Document Type:", doc_options, key="public_doc_type")
+                    type_var = doc_mapping[selected_friendly]
+                
+                # Simplified search with helpful examples
+                query = st.text_input(
+                    "🔍 Enter your property information:", 
+                    key="public_search_query",
+                    placeholder="Try: Property owner name, address, or account number (e.g., 'Smith', '123 Main St', or 'R1234567')",
+                    help="Enter at least 3 characters. You can search by owner name, property address, or account number."
+                )
+                submitted = st.form_submit_button("🔍 Find My Documents", use_container_width=True)
 
         # Define pdf_path here so it's always available (uses current type_var)
         pdf_path = get_doc_path(county_dir, type_var, "pdf")
@@ -469,57 +665,131 @@ with tab1:
             st.warning("PDF not found. Please upload in Settings.")
 
         if submitted:
-            index_data = load_index(county_dir, type_var)
-            with st.spinner("Searching..."):
-                results = search_matches(index_data, query, type_var)
-                if not results:
-                    st.error("No matches found.")
-                    st.session_state.search_results = None
+            # Validate minimum search length
+            if len(query.strip()) < 3:
+                if is_admin:
+                    st.error("Please enter at least 3 characters to search.")
                 else:
-                    st.success(f"Found {len(results)} match(es).")
-                    st.session_state.search_results = results
-                    st.session_state.selected_res = None  # Reset selection
-            st.rerun()
+                    st.error("⚠️ Please enter at least 3 characters to search for your property.")
+            else:
+                index_data = load_index(county_dir, type_var)
+                with st.spinner("🔍 Searching for your property documents..."):
+                    results = search_matches(index_data, query, type_var)
+                    if not results:
+                        if is_admin:
+                            st.error("No matches found.")
+                        else:
+                            st.error("❌ **No matching properties found.**")
+                            st.info("💡 **Try searching with:**\n- Different spelling of owner name\n- Partial address (e.g., just street name)\n- Account number if you have it")
+                        st.session_state.search_results = None
+                    else:
+                        if is_admin:
+                            st.success(f"Found {len(results)} match(es).")
+                        else:
+                            st.success(f"✅ **Found {len(results)} matching propert{'y' if len(results) == 1 else 'ies'}!**")
+                        st.session_state.search_results = results
+                        st.session_state.selected_res = None  # Reset selection
+                st.rerun()
 
         # Display results as radio list if available
         if st.session_state.search_results:
             results = st.session_state.search_results
-            display_options = [f"{r['acc']} - {r['ownership_name'][:30]}{'...' if len(r['ownership_name']) > 30 else ''} ({r['address'][:20]}{'...' if len(r['address']) > 20 else ''})" for r in results]
-            selected_idx = st.radio("Select a match to extract:", range(len(display_options)), format_func=lambda idx: display_options[idx], key="match_radio")
+            
+            if is_admin:
+                # Technical display for admin
+                display_options = [f"{r['acc']} - {r['ownership_name'][:30]}{'...' if len(r['ownership_name']) > 30 else ''} ({r['address'][:20]}{'...' if len(r['address']) > 20 else ''})" for r in results]
+                selected_idx = st.radio("Select a match to extract:", range(len(display_options)), format_func=lambda idx: display_options[idx], key="match_radio")
+            else:
+                # User-friendly display for public
+                st.markdown("### 🏠 Select Your Property:")
+                display_options = []
+                for r in results:
+                    owner = r['ownership_name'] if r['ownership_name'] and r['ownership_name'] != 'N/A' else 'Property Owner'
+                    address = r['address'] if r['address'] and r['address'] != 'N/A' else 'Address on file'
+                    display_options.append(f"**{owner}** - {address}")
+                
+                selected_idx = st.radio(
+                    "Choose your property from the list below:",
+                    range(len(display_options)), 
+                    format_func=lambda idx: display_options[idx], 
+                    key="public_match_radio"
+                )
+            
             selected_res = results[selected_idx]
             st.session_state.selected_res = selected_res
 
-            # Show details of selected
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.write("**Account:**")
-                st.write(f"{selected_res['acc']} (Local: {selected_res['local_number']})")
-            with col2:
-                st.write("**Business Name:**")
-                st.write(get_business_name(selected_res))
-            with col3:
-                st.write("**Ownership Name:**")
-                st.write(get_ownership_name(selected_res))
-            with col4:
-                st.write("**Address:**")
-                st.write(get_address_from_index(selected_res))
+            # Show details of selected property
+            if is_admin:
+                # Technical details for admin
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.write("**Account:**")
+                    st.write(f"{selected_res['acc']} (Local: {selected_res['local_number']})")
+                with col2:
+                    st.write("**Business Name:**")
+                    st.write(get_business_name(selected_res))
+                with col3:
+                    st.write("**Ownership Name:**")
+                    st.write(get_ownership_name(selected_res))
+                with col4:
+                    st.write("**Address:**")
+                    st.write(get_address_from_index(selected_res))
+                
+                # Admin button
+                extract_button_text = "Extract Selected PDF"
+                extract_key = "extract_pdf"
+            else:
+                # User-friendly details for public
+                st.markdown("### 📋 Property Information:")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown(f"**🏠 Property Owner:** {get_ownership_name(selected_res)}")
+                    st.markdown(f"**📍 Property Address:** {get_address_from_index(selected_res)}")
+                with col2:
+                    business_name = get_business_name(selected_res)
+                    if business_name and business_name != 'N/A':
+                        st.markdown(f"**🏢 Business Name:** {business_name}")
+                    st.markdown(f"**🆔 Account Number:** {selected_res['acc']}")
 
-            # Extract and download button (single button, inside the if)
-            if st.button("Extract Selected PDF", key="extract_pdf"):
+                # Public button
+                doc_name = {"Notice of Value": "Assessment Notice", 
+                           "Declaration": "Declaration Form", 
+                           "Tax Notice": "Tax Notice"}.get(type_var, "Document")
+                extract_button_text = f"📄 Get My {doc_name}"
+                extract_key = "public_extract_pdf"
+
+            # Extract and download button
+            if st.button(extract_button_text, key=extract_key, use_container_width=True):
                 pdf_bytes = extract_pdf(pdf_path, selected_res)
                 if isinstance(pdf_bytes, tuple):  # Error case
                     st.error(pdf_bytes[1])
                 else:
                     pdf_data = pdf_bytes.getvalue()
+                    
+                    if is_admin:
+                        download_label = "Download Extracted PDF"
+                        filename = f"{county}_{type_var}_{selected_res['acc']}.pdf"
+                    else:
+                        doc_name = {"Notice of Value": "Assessment_Notice", 
+                                   "Declaration": "Declaration_Form", 
+                                   "Tax Notice": "Tax_Notice"}.get(type_var, "Document")
+                        download_label = f"📄 Download My {doc_name.replace('_', ' ')}"
+                        filename = f"{county}_County_{doc_name}_{selected_res['acc']}.pdf"
+                    
                     st.download_button(
-                        label="Download Extracted PDF",
+                        label=download_label,
                         data=pdf_data,
-                        file_name=f"{county}_{type_var}_{selected_res['acc']}.pdf",
-                        mime="application/pdf"
+                        file_name=filename,
+                        mime="application/pdf",
+                        use_container_width=True
                     )
 
                     # Inline PDF Viewer with dynamic height
-                    st.markdown("### Full PDF Preview:")
+                    if is_admin:
+                        st.markdown("### Full PDF Preview:")
+                    else:
+                        st.markdown("### 📄 Your Document Preview:")
+                        st.info("💡 **Tip:** You can download the PDF above or view it here. This is your official document.")
                     try:
                         # Calc total height to fit content (no inner scroll)
                         doc = fitz.open(stream=pdf_data, filetype="pdf")
@@ -549,10 +819,29 @@ with tab1:
                         doc.close()
 
     else:
-        st.warning("Please index all document types in Settings before searching.")
+        if is_admin:
+            st.info("📋 **No indexed documents available**")
+            st.markdown("To get started:")
+            st.markdown("1. Go to the **Settings** tab")
+            st.markdown("2. Upload PDF and Excel files for any document type you want to search") 
+            st.markdown("3. Click the **Index** button for that document type")
+            st.markdown("4. Return here to search your indexed documents")
+            
+            # Show which document types are available but not indexed
+            not_indexed = [doc_type for doc_type in DOC_TYPES if not st.session_state.docs_indexed.get(doc_type, False)]
+            if not_indexed:
+                st.markdown(f"**Available document types to index:** {', '.join(not_indexed)}")
+        else:
+            st.warning("📋 **Document search is temporarily unavailable.**")
+            st.markdown("Please check back later or contact the assessor's office for assistance.")
 
-with tab2:
-    st.subheader("Settings: Upload and Index Documents")
+# Call the appropriate interface
+if st.session_state.admin_authenticated:
+    render_search_interface(is_admin=True)
+    
+    # Admin Settings Tab (only shown when authenticated)
+    with tab2:
+        st.subheader("Settings: Upload and Index Documents")
     with st.expander("Upload or Manage Files", expanded=True):
         col1, col2, col3 = st.columns(3)
         for i, doc_type in enumerate(DOC_TYPES):
@@ -563,45 +852,267 @@ with tab2:
                 # PDF Status and Replace
                 pdf_status = get_file_status(county_dir, doc_type, "pdf")
                 st.write(f"**PDF:** {pdf_status}")
+                
+                # PDF Upload
+                upload_status = st.empty()  # For dynamic feedback
                 uploaded_pdf = st.file_uploader(f"Replace {doc_type} PDF", type=['pdf'], key=f"{doc_type.replace(' ', '_').lower()}_pdf_replace_{county}")
                 if uploaded_pdf is not None:
-                    pdf_path = get_doc_path(county_dir, doc_type, "pdf")
-                    with open(pdf_path, "wb") as f:
-                        f.write(uploaded_pdf.getbuffer())
-                    st.success(f"{doc_type} PDF replaced!")
-                    st.session_state.docs_indexed[doc_type] = False  # Mark as needs re-index
-                    st.rerun()
+                    upload_status.text("Uploading...")
+                    try:
+                        pdf_path = get_doc_path(county_dir, doc_type, "pdf")
+                        with open(pdf_path, "wb") as f:
+                            shutil.copyfileobj(uploaded_pdf, f, length=1024 * 1024)
+                        upload_status.success(f"{doc_type} PDF replaced!")
+                        st.session_state.docs_indexed[doc_type] = False  # Mark as needs re-index
+                    except Exception as e:
+                        upload_status.error(f"Upload failed: {str(e)}")
+                        with open("/tmp/streamlit_upload_error.log", "a") as logf:
+                            logf.write(f"{datetime.now()}: {str(e)}\n")
+                
+                # PDF Delete Button with confirmation
+                pdf_path = get_doc_path(county_dir, doc_type, "pdf")
+                if os.path.exists(pdf_path):
+                    # Add confirmation state to session state if not exists
+                    confirm_key = f"confirm_delete_pdf_{doc_type}_{county}"
+                    if confirm_key not in st.session_state:
+                        st.session_state[confirm_key] = False
+                    
+                    if not st.session_state[confirm_key]:
+                        if st.button(f"🗑️ Delete {doc_type} PDF", key=f"delete_pdf_{doc_type}_{county}", help="Permanently delete this PDF file"):
+                            st.session_state[confirm_key] = True
+                            st.rerun()
+                    else:
+                        st.warning(f"⚠️ Are you sure you want to delete the {doc_type} PDF? This cannot be undone!")
+                        col_confirm1, col_confirm2 = st.columns(2)
+                        with col_confirm1:
+                            if st.button(f"✅ Yes, Delete", key=f"confirm_yes_pdf_{doc_type}_{county}"):
+                                try:
+                                    os.remove(pdf_path)
+                                    st.session_state.docs_indexed[doc_type] = False  # Mark as needs re-index
+                                    st.session_state[confirm_key] = False  # Reset confirmation
+                                    st.success(f"{doc_type} PDF deleted successfully!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Failed to delete PDF: {str(e)}")
+                        with col_confirm2:
+                            if st.button(f"❌ Cancel", key=f"confirm_no_pdf_{doc_type}_{county}"):
+                                st.session_state[confirm_key] = False
+                                st.rerun()
                 
                 # Excel Status and Replace
                 excel_status = get_file_status(county_dir, doc_type, "xlsx")
                 st.write(f"**Excel:** {excel_status}")
+                
+                # Excel Upload
+                upload_status_excel = st.empty()  # For dynamic feedback
                 uploaded_excel = st.file_uploader(f"Replace {doc_type} Excel", type=['xlsx', 'xls'], key=f"{doc_type.replace(' ', '_').lower()}_excel_replace_{county}")
                 if uploaded_excel is not None:
-                    excel_path = get_doc_path(county_dir, doc_type, "xlsx")
-                    with open(excel_path, "wb") as f:
-                        f.write(uploaded_excel.getbuffer())
-                    st.success(f"{doc_type} Excel replaced!")
-                    st.session_state.docs_indexed[doc_type] = False  # Mark as needs re-index
-                    st.rerun()
+                    upload_status_excel.text("Uploading...")
+                    try:
+                        excel_path = get_doc_path(county_dir, doc_type, "xlsx")
+                        with open(excel_path, "wb") as f:
+                            shutil.copyfileobj(uploaded_excel, f, length=1024 * 1024)
+                        upload_status_excel.success(f"{doc_type} Excel replaced!")
+                        st.session_state.docs_indexed[doc_type] = False  # Mark as needs re-index
+                    except Exception as e:
+                        upload_status_excel.error(f"Upload failed: {str(e)}")
+                        with open("/tmp/streamlit_upload_error.log", "a") as logf:
+                            logf.write(f"{datetime.now()}: {str(e)}\n")
                 
-                # Index/Re-Index Button
-                index_text = "Re-Index" if st.session_state.docs_indexed.get(doc_type, False) else "Index"
-                if st.button(f"{index_text} {doc_type}", key=f"index_{doc_type}_{county}"):
-                    pdf_path = get_doc_path(county_dir, doc_type, "pdf")
-                    excel_path = get_doc_path(county_dir, doc_type, "xlsx")
-                    if os.path.exists(pdf_path):
-                        with st.spinner(f"Indexing {doc_type}..."):
-                            index_data = index_pdf(pdf_path, excel_path if os.path.exists(excel_path) else None, doc_type)
-                            save_index(county_dir, doc_type, index_data)
-                            st.session_state.docs_indexed[doc_type] = True
-                            st.success(f"{doc_type} indexed successfully!")
+                # Excel Delete Button with confirmation
+                excel_path = get_doc_path(county_dir, doc_type, "xlsx")
+                if os.path.exists(excel_path):
+                    # Add confirmation state to session state if not exists
+                    confirm_key = f"confirm_delete_excel_{doc_type}_{county}"
+                    if confirm_key not in st.session_state:
+                        st.session_state[confirm_key] = False
+                    
+                    if not st.session_state[confirm_key]:
+                        if st.button(f"🗑️ Delete {doc_type} Excel", key=f"delete_excel_{doc_type}_{county}", help="Permanently delete this Excel file"):
+                            st.session_state[confirm_key] = True
                             st.rerun()
                     else:
-                        st.warning(f"Please upload {doc_type} PDF first.")
+                        st.warning(f"⚠️ Are you sure you want to delete the {doc_type} Excel? This cannot be undone!")
+                        col_confirm1, col_confirm2 = st.columns(2)
+                        with col_confirm1:
+                            if st.button(f"✅ Yes, Delete", key=f"confirm_yes_excel_{doc_type}_{county}"):
+                                try:
+                                    os.remove(excel_path)
+                                    st.session_state.docs_indexed[doc_type] = False  # Mark as needs re-index
+                                    st.session_state[confirm_key] = False  # Reset confirmation
+                                    st.success(f"{doc_type} Excel deleted successfully!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Failed to delete Excel: {str(e)}")
+                        with col_confirm2:
+                            if st.button(f"❌ Cancel", key=f"confirm_no_excel_{doc_type}_{county}"):
+                                st.session_state[confirm_key] = False
+                                st.rerun()
+                
+                # Index/Re-Index and Delete Index Buttons
+                col_idx1, col_idx2 = st.columns(2)
+                
+                with col_idx1:
+                    index_text = "Re-Index" if st.session_state.docs_indexed.get(doc_type, False) else "Index"
+                    if st.button(f"{index_text} {doc_type}", key=f"index_{doc_type}_{county}"):
+                        pdf_path = get_doc_path(county_dir, doc_type, "pdf")
+                        excel_path = get_doc_path(county_dir, doc_type, "xlsx")
+                        if os.path.exists(pdf_path):
+                            # Create progress bar
+                            progress_placeholder = st.empty()
+                            progress_bar = progress_placeholder.progress(0, text=f"Starting to index {doc_type}...")
+                            
+                            try:
+                                index_data = index_pdf_with_progress(
+                                    pdf_path, 
+                                    excel_path if os.path.exists(excel_path) else None, 
+                                    doc_type, 
+                                    progress_bar
+                                )
+                                progress_bar.progress(1.0, text="Saving index...")
+                                save_index(county_dir, doc_type, index_data)
+                                st.session_state.docs_indexed[doc_type] = True
+                                progress_placeholder.empty()  # Remove progress bar
+                                st.success(f"{doc_type} indexed successfully!")
+                                st.rerun()
+                            except Exception as e:
+                                progress_placeholder.empty()  # Remove progress bar on error
+                                st.error(f"Indexing failed: {str(e)}")
+                        else:
+                            st.warning(f"Please upload {doc_type} PDF first.")
+                
+                with col_idx2:
+                    # Delete Index Button
+                    index_path = get_doc_path(county_dir, doc_type, "json")
+                    if os.path.exists(index_path):
+                        if st.button(f"🗑️ Clear {doc_type} Index", key=f"delete_index_{doc_type}_{county}", help="Delete the search index (keeps files)"):
+                            try:
+                                os.remove(index_path)
+                                st.session_state.docs_indexed[doc_type] = False
+                                st.success(f"{doc_type} index cleared!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Failed to clear index: {str(e)}")
 
     # Check indexing status
-    st.subheader("Indexing Status")
-    for doc_type in DOC_TYPES:
+    st.subheader("📊 Indexing Status")
+    
+    indexed_count = 0
+    col1, col2, col3 = st.columns(3)
+    
+    for i, doc_type in enumerate(DOC_TYPES):
+        col = [col1, col2, col3][i]
         index_file = get_doc_path(county_dir, doc_type, "json")
-        status = "✅ Indexed" if os.path.exists(index_file) else "❌ Not Indexed"
-        st.write(f"{doc_type}: {status}")
+        is_indexed = os.path.exists(index_file)
+        
+        if is_indexed:
+            indexed_count += 1
+            # Get index stats
+            try:
+                with open(index_file, 'r', encoding='utf-8') as f:
+                    index_data = json.load(f)
+                    account_count = len(index_data)
+                status_text = f"✅ **{doc_type}**\n\n{account_count:,} accounts indexed"
+                col.success(status_text)
+            except:
+                col.success(f"✅ **{doc_type}**\n\nIndexed (stats unavailable)")
+        else:
+            col.error(f"❌ **{doc_type}**\n\nNot indexed")
+    
+    # Summary message
+    if indexed_count == 0:
+        st.warning("🚨 **No documents indexed yet.** Upload and index at least one document type to start searching.")
+    elif indexed_count == len(DOC_TYPES):
+        st.success(f"🎉 **All document types indexed!** You can search across all {len(DOC_TYPES)} document types.")
+    else:
+        st.info(f"📈 **{indexed_count} of {len(DOC_TYPES)} document types indexed.** You can search the indexed types and add more anytime.")
+    
+    # Bulk Actions
+    if indexed_count > 0:
+        with st.expander("🔧 Bulk Actions", expanded=False):
+            col_bulk1, col_bulk2 = st.columns(2)
+            
+            with col_bulk1:
+                st.write("**Clear All Indexes:**")
+                if st.button("🗑️ Clear All Indexes", key=f"clear_all_indexes_{county}", help="Remove all search indexes (keeps PDF/Excel files)"):
+                    cleared_count = 0
+                    for doc_type in DOC_TYPES:
+                        index_file = get_doc_path(county_dir, doc_type, "json")
+                        if os.path.exists(index_file):
+                            try:
+                                os.remove(index_file)
+                                st.session_state.docs_indexed[doc_type] = False
+                                cleared_count += 1
+                            except Exception as e:
+                                st.error(f"Failed to clear {doc_type} index: {str(e)}")
+                    if cleared_count > 0:
+                        st.success(f"Cleared {cleared_count} index(es) successfully!")
+                        st.rerun()
+            
+            with col_bulk2:
+                st.write("**Delete All Files:**")
+                if st.button("⚠️ Delete All Files", key=f"delete_all_files_{county}", help="PERMANENTLY delete all PDF, Excel, and index files"):
+                    deleted_files = 0
+                    for doc_type in DOC_TYPES:
+                        # Delete PDF
+                        pdf_path = get_doc_path(county_dir, doc_type, "pdf")
+                        if os.path.exists(pdf_path):
+                            try:
+                                os.remove(pdf_path)
+                                deleted_files += 1
+                            except Exception as e:
+                                st.error(f"Failed to delete {doc_type} PDF: {str(e)}")
+                        
+                        # Delete Excel
+                        excel_path = get_doc_path(county_dir, doc_type, "xlsx")
+                        if os.path.exists(excel_path):
+                            try:
+                                os.remove(excel_path)
+                                deleted_files += 1
+                            except Exception as e:
+                                st.error(f"Failed to delete {doc_type} Excel: {str(e)}")
+                        
+                        # Delete Index
+                        index_path = get_doc_path(county_dir, doc_type, "json")
+                        if os.path.exists(index_path):
+                            try:
+                                os.remove(index_path)
+                                deleted_files += 1
+                            except Exception as e:
+                                st.error(f"Failed to delete {doc_type} index: {str(e)}")
+                        
+                        # Reset session state
+                        st.session_state.docs_indexed[doc_type] = False
+                    
+                    if deleted_files > 0:
+                        st.success(f"Deleted {deleted_files} file(s) successfully!")
+                        st.rerun()
+                    else:
+                        st.info("No files found to delete.")
+            
+            st.warning("⚠️ **Important:** Delete operations are permanent and cannot be undone!")
+
+else:
+    # Public interface - just show the search
+    render_search_interface(is_admin=False)
+    
+    # Public footer with help information
+    st.markdown("---")
+    st.markdown("### 📞 Need Help?")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("""
+        **Can't find your property?**
+        - Try searching with partial information
+        - Check spelling of names or addresses
+        - Use just the street name without number
+        """)
+    with col2:
+        st.markdown(f"""
+        **Contact the {county} County Assessor's Office:**
+        - 📧 Email: assessor@{county.lower().replace(' ', '')}county.gov
+        - 📞 Phone: Contact information available on county website
+        - 🌐 Visit: {county} County official website
+        """)
+    
+    st.markdown("*This portal provides access to official county assessment and tax documents.*")
