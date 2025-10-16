@@ -206,7 +206,7 @@ def index_pdf(pdf_path, excel_path, search_type):
     if pd is not None and excel_path and os.path.isfile(excel_path):
         try:
             excel_df = pd.read_excel(excel_path, engine='openpyxl')
-            required_columns = ['ACCOUNTNO', 'NAME1', 'BUSINESSNAME', 'PREDIRECTION', 'STREETNO', 'POSTDIRECTION', 'STREETNAME', 'STREETTYPE']
+            required_columns = ['ACCOUNTNO', 'NAME1', 'ADDRESS']
             if all(col in excel_df.columns for col in required_columns):
                 excel_df.set_index('ACCOUNTNO', inplace=True)
             else:
@@ -233,15 +233,8 @@ def index_pdf(pdf_path, excel_path, search_type):
                 if excel_df is not None and account in excel_df.index:
                     row = excel_df.loc[account]
                     ownership_name = str(row.get('NAME1', '')) if pd.notna(row.get('NAME1')) else ""
+                    property_address = str(row.get('ADDRESS', '')) if pd.notna(row.get('ADDRESS')) else ""
                     business_name = str(row.get('BUSINESSNAME', '')) if pd.notna(row.get('BUSINESSNAME')) else ""
-                    address_parts = [
-                        str(row.get('PREDIRECTION', '')) if pd.notna(row.get('PREDIRECTION')) else "",
-                        str(row.get('STREETNO', '')) if pd.notna(row.get('STREETNO')) else "",
-                        str(row.get('POSTDIRECTION', '')) if pd.notna(row.get('POSTDIRECTION')) else "",
-                        str(row.get('STREETNAME', '')) if pd.notna(row.get('STREETNAME')) else "",
-                        str(row.get('STREETTYPE', '')) if pd.notna(row.get('STREETTYPE')) else ""
-                    ]
-                    property_address = ' '.join(part for part in address_parts if part)
                     excel_local_number = str(row.get('Local Number', '')) if pd.notna(row.get('Local Number')) else ""
                     if excel_local_number and re.match(r'^\d{4,6}$', excel_local_number):
                         local_number = excel_local_number.lstrip('0').zfill(4)
