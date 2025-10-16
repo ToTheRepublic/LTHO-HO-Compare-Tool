@@ -136,7 +136,7 @@ def extract_nov_info(text):
 
     normalized_lines = [re.sub(r'\s+', ' ', line).strip() for line in lines]
 
-    account_pattern = re.compile(r'[RMPO]000\d{4,5}', re.I)
+    account_pattern = re.compile(r'[RMPO]\d{7}', re.I)
     account_index = -1
     for i, line in enumerate(normalized_lines):
         match = account_pattern.search(line)
@@ -157,7 +157,7 @@ def extract_declaration_info(text):
     account = ""
     local_number = ""
 
-    acc_pattern = re.compile(r'[RMPO]000\d{4,5}', re.I)
+    acc_pattern = re.compile(r'[RMPO]\d{7}', re.I)
     for line in lines:
         acc_match = acc_pattern.search(line)
         if acc_match:
@@ -179,7 +179,7 @@ def extract_tax_notice_info(text):
 
     for line in lines:
         if "LOCAL/REALWARE ID #" in line:
-            id_match = re.search(r'LOCAL/REALWARE ID #\s*(\d+)/([RMPO]000\d{4,5})', line, re.I)
+            id_match = re.search(r'LOCAL/REALWARE ID #\s*(\d+)/([RMPO]\d{7})', line, re.I)
             if id_match:
                 local_number = id_match.group(1).lstrip('0').zfill(4)
                 account = id_match.group(2).upper()
@@ -286,7 +286,7 @@ def search_matches(index_data, query, search_type):
     results = []
 
     # Exact account match
-    if re.match(r'^[RMPO]000\d{4,5}$', query, re.I):
+    if re.match(r'^[RMPO]\d{7}$', query, re.I):
         q_upper = query.upper()
         if q_upper in index_data:
             data = index_data[q_upper]
