@@ -520,9 +520,19 @@ tab1, tab2 = st.tabs(["Search", "Settings"])
 with tab1:
     st.subheader("Search Documents")
     
-    if all(st.session_state.docs_indexed.get(doc_type, False) for doc_type in DOC_TYPES):
+    # Get list of indexed document types
+    indexed_doc_types = [doc_type for doc_type in DOC_TYPES if st.session_state.docs_indexed.get(doc_type, False)]
+    
+    # Show status of indexed documents
+    if indexed_doc_types:
+        st.success(f"✅ **Available document types:** {', '.join(indexed_doc_types)}")
+        not_indexed = [doc_type for doc_type in DOC_TYPES if not st.session_state.docs_indexed.get(doc_type, False)]
+        if not_indexed:
+            st.info(f"💭 **Not yet indexed:** {', '.join(not_indexed)} (go to Settings to add these)")
+    
+    if indexed_doc_types:
         with st.form("search_form"):
-            type_var = st.selectbox("Document Type:", DOC_TYPES, key="doc_type")
+            type_var = st.selectbox("Document Type:", indexed_doc_types, key="doc_type")
             query = st.text_input("Search (Account/Local/Name/Address):", key="search_query", placeholder="Minimum 3 characters. e.g., R0001234 or 1234 or 'Smith' or 'Main St'")
             submitted = st.form_submit_button("Search Matches")
 
@@ -616,7 +626,17 @@ with tab1:
                         doc.close()
 
     else:
-        st.warning("Please index all document types in Settings before searching.")
+        st.info("📋 **No indexed documents available**")
+        st.markdown("To get started:")
+        st.markdown("1. Go to the **Settings** tab")
+        st.markdown("2. Upload PDF and Excel files for any document type you want to search") 
+        st.markdown("3. Click the **Index** button for that document type")
+        st.markdown("4. Return here to search your indexed documents")
+        
+        # Show which document types are available but not indexed
+        not_indexed = [doc_type for doc_type in DOC_TYPES if not st.session_state.docs_indexed.get(doc_type, False)]
+        if not_indexed:
+            st.markdown(f"**Available document types to index:** {', '.join(not_indexed)}")
 
 with tab2:
     st.subheader("Settings: Upload and Index Documents")
@@ -693,8 +713,34 @@ with tab2:
                         st.warning(f"Please upload {doc_type} PDF first.")
 
     # Check indexing status
-    st.subheader("Indexing Status")
-    for doc_type in DOC_TYPES:
+    st.subheader("📊 Indexing Status")
+    
+    indexed_count = 0
+    col1, col2, col3 = st.columns(3)
+    
+    for i, doc_type in enumerate(DOC_TYPES):
+        col = [col1, col2, col3][i]
         index_file = get_doc_path(county_dir, doc_type, "json")
-        status = "✅ Indexed" if os.path.exists(index_file) else "❌ Not Indexed"
-        st.write(f"{doc_type}: {status}")
+        is_indexed = os.path.exists(index_file)
+        
+        if is_indexed:
+            indexed_count += 1
+            # Get index stats
+            try:
+                with open(index_file, 'r', encoding='utf-8') as f:
+                    index_data = json.load(f)
+                    account_count = len(index_data)
+                status_text = f"✅ **{doc_type}**\n\n{account_count:,} accounts indexed"
+                col.success(status_text)
+            except:
+                col.success(f"✅ **{doc_type}**\n\nIndexed (stats unavailable)")
+        else:
+            col.error(f"❌ **{doc_type}**\n\nNot indexed")
+    
+    # Summary message
+    if indexed_count == 0:
+        st.warning("🚨 **No documents indexed yet.** Upload and index at least one document type to start searching.")
+    elif indexed_count == len(DOC_TYPES):
+        st.success(f"🎉 **All document types indexed!** You can search across all {len(DOC_TYPES)} document types.")
+    else:
+        st.info(f"📈 **{indexed_count} of {len(DOC_TYPES)} document types indexed.** You can search the indexed types and add more anytime.")
