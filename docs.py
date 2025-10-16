@@ -224,51 +224,77 @@ def index_pdf_with_progress(pdf_path, excel_path, search_type, progress_bar=None
         total_pages = len(doc)
         
         for page_num in range(total_pages):
-            # Update progress bar if provided
-            if progress_bar is not None:
-                progress = (page_num + 1) / total_pages
-                progress_bar.progress(progress, text=f"Processing page {page_num + 1} of {total_pages}")
-            
-            text = doc[page_num].get_text()
-            if not text:
+            try:
+                # Update progress bar if provided
+                if progress_bar is not None:
+                    progress = (page_num + 1) / total_pages
+                    progress_bar.progress(progress, text=f"Processing page {page_num + 1} of {total_pages}")
+                
+                text = doc[page_num].get_text()
+                if not text:
+                    continue
+                account, local_number = extract_info_from_text(text, search_type)
+                
+                if account in debug_accounts:
+                    st.write(f"Debug for {account} on page {page_num + 1}")
+
+                if account:
+                    ownership_name = ""
+                    property_address = ""
+                    business_name = ""
+                    local_number = ""
+                    if excel_df is not None and account in excel_df.index:
+                        try:
+                            row = excel_df.loc[account]
+                            # Handle case where there are duplicate account numbers (returns Series)
+                            if isinstance(row, pd.Series):
+                                # Single row found
+                                ownership_name = str(row.get('NAME1', '')) if pd.notna(row.get('NAME1')) else ""
+                                property_address = str(row.get('ADDRESS', '')) if pd.notna(row.get('ADDRESS')) else ""
+                                business_name = str(row.get('BUSINESSNAME', '')) if pd.notna(row.get('BUSINESSNAME')) else ""
+                                excel_local_number = str(row.get('Local Number', '')) if pd.notna(row.get('Local Number')) else ""
+                            else:
+                                # Multiple rows found (DataFrame), take the first one
+                                first_row = row.iloc[0]
+                                ownership_name = str(first_row.get('NAME1', '')) if pd.notna(first_row.get('NAME1')) else ""
+                                property_address = str(first_row.get('ADDRESS', '')) if pd.notna(first_row.get('ADDRESS')) else ""
+                                business_name = str(first_row.get('BUSINESSNAME', '')) if pd.notna(first_row.get('BUSINESSNAME')) else ""
+                                excel_local_number = str(first_row.get('Local Number', '')) if pd.notna(first_row.get('Local Number')) else ""
+                            
+                            if excel_local_number and re.match(r'^\d{4,6}$', excel_local_number):
+                                local_number = excel_local_number.lstrip('0').zfill(4)
+                        except Exception as excel_error:
+                            # If there's any issue with Excel lookup, continue without it
+                            ownership_name = ""
+                            property_address = ""
+                            business_name = ""
+
+                    if account not in index_data:
+                        index_data[account] = {
+                            "local_number": local_number,
+                            "business_name": business_name,
+                            "address": property_address,
+                            "ownership_name": ownership_name,
+                            "pages": [page_num + 1]
+                        }
+                        first_page[account] = page_num + 1
+                    else:
+                        index_data[account]["pages"].append(page_num + 1)
+                        if page_num + 1 == first_page[account]:
+                            if not index_data[account]["business_name"] and business_name:
+                                index_data[account]["business_name"] = business_name
+                            if not index_data[account]["address"] and property_address:
+                                index_data[account]["address"] = property_address
+                            if not index_data[account]["ownership_name"] and ownership_name:
+                                index_data[account]["ownership_name"] = ownership_name
+            except Exception as page_error:
+                # Continue processing even if a single page fails
+                if progress_bar is not None:
+                    progress = (page_num + 1) / total_pages
+                    progress_bar.progress(progress, text=f"Error on page {page_num + 1}, continuing... ({str(page_error)[:50]})")
+                # Log the error for debugging (you can remove this line if not needed)
+                print(f"Error processing page {page_num + 1}: {str(page_error)}")
                 continue
-            account, local_number = extract_info_from_text(text, search_type)
-            
-            if account in debug_accounts:
-                st.write(f"Debug for {account} on page {page_num + 1}")
-
-            if account:
-                ownership_name = ""
-                property_address = ""
-                business_name = ""
-                local_number = ""
-                if excel_df is not None and account in excel_df.index:
-                    row = excel_df.loc[account]
-                    ownership_name = str(row.get('NAME1', '')) if pd.notna(row.get('NAME1')) else ""
-                    property_address = str(row.get('ADDRESS', '')) if pd.notna(row.get('ADDRESS')) else ""
-                    business_name = str(row.get('BUSINESSNAME', '')) if pd.notna(row.get('BUSINESSNAME')) else ""
-                    excel_local_number = str(row.get('Local Number', '')) if pd.notna(row.get('Local Number')) else ""
-                    if excel_local_number and re.match(r'^\d{4,6}$', excel_local_number):
-                        local_number = excel_local_number.lstrip('0').zfill(4)
-
-                if account not in index_data:
-                    index_data[account] = {
-                        "local_number": local_number,
-                        "business_name": business_name,
-                        "address": property_address,
-                        "ownership_name": ownership_name,
-                        "pages": [page_num + 1]
-                    }
-                    first_page[account] = page_num + 1
-                else:
-                    index_data[account]["pages"].append(page_num + 1)
-                    if page_num + 1 == first_page[account]:
-                        if not index_data[account]["business_name"] and business_name:
-                            index_data[account]["business_name"] = business_name
-                        if not index_data[account]["address"] and property_address:
-                            index_data[account]["address"] = property_address
-                        if not index_data[account]["ownership_name"] and ownership_name:
-                            index_data[account]["ownership_name"] = ownership_name
         doc.close()
     except Exception as e:
         st.error(f"Error indexing: {str(e)}")
