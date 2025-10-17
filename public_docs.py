@@ -429,11 +429,20 @@ if 'last_county' not in st.session_state:
     st.session_state.last_county = county
 save_user_pref('last_county', county)  # Persist for fallback
 
-# Back to Home button (to subdomain index.html)
+# Context-aware back button
+if st.session_state.get('admin_authenticated', False):
+    # Admin users - go back to admin tools or county selection
+    back_url = "https://wydocsportal.com"
+    back_text = "← Back to County Selection"
+else:
+    # Public users - go back to county selection
+    back_url = "https://wydocsportal.com" 
+    back_text = "← Back to County Selection"
+
 st.markdown(
-    """
+    f"""
     <style>
-    .back-to-home {
+    .back-to-home {{
         text-decoration: none;
         display: inline-block;
         padding: 8px 16px;
@@ -448,16 +457,16 @@ st.markdown(
         transition: background-color 0.2s, border-color 0.2s, color 0.2s;
         text-shadow: 0 1px 2px rgba(0,0,0,0.1);  /* Subtle shadow for readability */
         opacity: 1 !important;  /* Prevent fading */
-    }
-    .back-to-home:hover {
+    }}
+    .back-to-home:hover {{
         background-color: #2563EB;
         border-color: #2563EB;
         color: white !important;
         text-shadow: 0 1px 2px rgba(0,0,0,0.2);  /* Slightly stronger on hover */
-    }
+    }}
     </style>
-    <a href="/" target="_self" rel="noopener noreferrer" class="back-to-home">
-        ← Back to Tools
+    <a href="{back_url}" target="_self" rel="noopener noreferrer" class="back-to-home">
+        {back_text}
     </a>
     """,
     unsafe_allow_html=True
@@ -540,12 +549,7 @@ if st.session_state.admin_clicks >= 5 and not st.session_state.show_admin_login:
     st.session_state.show_admin_login = True
     st.session_state.admin_clicks = 0
 
-# Hidden admin button (click county name 5 times)
-with admin_placeholder.container():
-    if st.button(f"📍 {county} County", key="hidden_admin_button", help="Click here to search your property documents"):
-        st.session_state.admin_clicks += 1
-        if st.session_state.admin_clicks >= 5:
-            st.session_state.show_admin_login = True
+# Remove the obvious admin button from here - will move to footer
 
 # Admin login form
 if st.session_state.show_admin_login and not st.session_state.admin_authenticated:
@@ -574,6 +578,12 @@ if st.session_state.admin_authenticated:
     
     with tab1:
         st.subheader("Document Search (Admin)")
+        # Add admin logout option
+        if st.button("🚪 Logout Admin", type="secondary"):
+            st.session_state.admin_authenticated = False
+            st.session_state.show_admin_login = False
+            st.session_state.admin_clicks = 0
+            st.rerun()
 else:
     # Public interface - no tabs, just search
     st.subheader("🔍 Search Your Property Documents")
@@ -1127,3 +1137,14 @@ else:
         """)
     
     st.markdown("*This portal provides access to official county assessment and tax documents.*")
+    
+    # Discrete admin access in footer (looks like version info)
+    st.markdown("---")
+    col1, col2, col3 = st.columns([2,1,1])
+    with col3:
+        # Hidden admin button disguised as version info
+        if st.button("v2.1.3", key="hidden_admin_button", help="Portal version", 
+                    type="secondary"):
+            st.session_state.admin_clicks += 1
+            if st.session_state.admin_clicks >= 5:
+                st.session_state.show_admin_login = True
