@@ -108,7 +108,8 @@ else:
     st.title("Document Search Tool (No County)")
 
 # Document types
-DOC_TYPES = ["Notice of Value", "Declaration", "Tax Notice"]
+# NO DECS DOC_TYPES = ["Notice of Value", "Declaration", "Tax Notice"]
+DOC_TYPES = ["Notice of Value", "Tax Notice"]
 
 # Base directory for county data
 BASE_DIR = "county_docs"
